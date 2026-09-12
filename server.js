@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3000;
+const GRABACIONES = path.join(__dirname, "grabaciones");
 
 // ---------------------------------------------------------------- certificado
 // Safari en iOS solo entrega getUserMedia en un "secure context": https, o
@@ -62,57 +63,77 @@ function cargarCertificado(ips) {
 }
 
 // ------------------------------------------------------------------- registro
-function hora() {
-  return new Date().toLocaleTimeString();
-}
-
 function log(origen, ...resto) {
-  console.log(`${hora()}  ${origen}  ${resto.join(" ")}`);
+  console.log(`${new Date().toLocaleTimeString()}  ${origen}  ${resto.join(" ")}`);
 }
 
 // -------------------------------------------------------------------- estatico
 const app = express();
 
 app.use((req, res, next) => {
-  const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
-  log(origen, req.method, req.url);
+  if (req.url !== "/api/log") {
+    const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
+    log(origen, req.method, req.url);
+  }
   next();
 });
 
 app.use(express.static(path.join(__dirname, "public")));
-// phone.js y monitor.js importan ../shared/config.js, que el navegador pide
-// como /shared/config.js. Sin esto el modulo tira 404 y la pagina no arranca.
+// phone.js y monitor.js importan ../shared/*.js, que el navegador pide como
+// /shared/*.js. Sin esto el modulo tira 404 y la pagina no arranca.
 app.use("/shared", express.static(path.join(__dirname, "shared")));
+// MediaPipe servido desde el repo y no desde un CDN: anda sin internet y la
+// version queda clavada por package-lock.
+app.use("/vendor", express.static(path.join(__dirname, "node_modules/@mediapipe/tasks-vision")));
+app.use("/modelos", express.static(path.join(__dirname, "modelos")));
+app.use("/grabaciones", express.static(GRABACIONES));
+
+// Los navegadores mandan aca sus logs: el monitor corre en Chrome en la PC y
+// el emisor en Safari en el telefono, y no hay una sola consola donde mirar
+// las dos puntas.
+app.post("/api/log", express.json({ limit: "1mb" }), (req, res) => {
+  const etiqueta = String(req.body?.etiqueta || "web").slice(0, 20);
+  for (const linea of req.body?.lineas || []) {
+    console.log(`${new Date().toLocaleTimeString()}  [${etiqueta}] ${String(linea).slice(0, 500)}`);
+  }
+  res.sendStatus(204);
+});
+
+app.get("/api/grabaciones", (req, res) => {
+  const archivos = fs
+    .readdirSync(GRABACIONES)
+    .filter((n) => !n.startsWith("."))
+    .sort()
+    .reverse()
+    .map((n) => ({ nombre: n, bytes: fs.statSync(path.join(GRABACIONES, n)).size }));
+  res.json(archivos);
+});
 
 const ips = ipsLocales();
+fs.mkdirSync(GRABACIONES, { recursive: true });
 const server = createServer(cargarCertificado(ips), app);
 const wss = new WebSocketServer({ server });
+
+function enviar(ws, objeto) {
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(typeof objeto === "string" ? objeto : JSON.stringify(objeto));
+  }
+}
 
 // ------------------------------------------------------------------ signaling
 // El servidor solo pasa texto (SDP/ICE). El video va peer-to-peer.
 const peers = {};                                // { phone: ws, monitor: ws }
 const pendientes = { phone: [], monitor: [] };   // mensajes para un peer que todavia no llego
 
-function enviar(ws, texto) {
-  if (ws && ws.readyState === ws.OPEN) ws.send(texto);
-}
-
 function avisarPeer(rol, presente) {
   // El telefono es el que emite la oferta. Si el monitor se cae y vuelve, el
   // telefono tiene que enterarse para renegociar; si no, la pagina de la PC
   // se queda en negro esperando una oferta que nunca va a llegar.
   const otro = rol === "phone" ? "monitor" : "phone";
-  enviar(peers[otro], JSON.stringify({ type: "peer", role: rol, presente }));
+  enviar(peers[otro], { type: "peer", role: rol, presente });
 }
 
-wss.on("connection", (ws, req) => {
-  const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
-  ws.origen = origen;
-  ws.vivo = true;
-  ws.on("pong", () => { ws.vivo = true; });
-
-  log(origen, "WebSocket abierto");
-
+function manejarSignaling(ws, origen) {
   ws.on("message", (raw) => {
     let msg;
     try {
@@ -134,14 +155,12 @@ wss.on("connection", (ws, req) => {
       ws.rol = msg.role;
       log(origen, `conectado como ${msg.role}`);
 
-      // Lo que quedo encolado mientras este rol no estaba.
       const cola = pendientes[msg.role] || [];
       while (cola.length) enviar(ws, cola.shift());
 
-      // Presentacion cruzada, en los dos sentidos.
       avisarPeer(msg.role, true);
       const otro = msg.role === "phone" ? "monitor" : "phone";
-      if (peers[otro]) enviar(ws, JSON.stringify({ type: "peer", role: otro, presente: true }));
+      if (peers[otro]) enviar(ws, { type: "peer", role: otro, presente: true });
       return;
     }
 
@@ -150,11 +169,9 @@ wss.on("connection", (ws, req) => {
     else if (pendientes[rol].length < 200) pendientes[rol].push(raw.toString());
   });
 
-  ws.on("error", (err) => log(origen, "error de socket:", err.message));
-
   ws.on("close", (codigo, motivo) => {
     const texto = motivo && motivo.length ? motivo.toString() : "sin motivo";
-    log(origen, `WebSocket cerrado (${ws.rol || "sin rol"}) codigo=${codigo} motivo=${texto}`);
+    log(origen, `cerrado (${ws.rol || "sin rol"}) codigo=${codigo} motivo=${texto}`);
 
     if (ws.rol && peers[ws.rol] === ws) {
       delete peers[ws.rol];
@@ -164,6 +181,109 @@ wss.on("connection", (ws, req) => {
       avisarPeer(ws.rol, false);
     }
   });
+}
+
+// ----------------------------------------------------------------- grabaciones
+// Los trozos del MediaRecorder se escriben a disco a medida que llegan. Una
+// toma de varios minutos a 12 Mbps son cientos de MB: juntarla entera en
+// memoria para mandarla de una sola vez es pedir que reviente.
+function marcaDeTiempo() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+    `_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
+function manejarGrabacion(ws, origen) {
+  log(origen, "canal de grabacion abierto");
+
+  let escritor = null;
+  let parcial = null;
+  let bytes = 0;
+
+  function descartar() {
+    const archivo = parcial;
+    parcial = null;
+    if (!escritor) {
+      if (archivo && fs.existsSync(archivo)) fs.unlinkSync(archivo);
+      return;
+    }
+    const ese = escritor;
+    escritor = null;
+    ese.end(() => {
+      if (archivo && fs.existsSync(archivo)) fs.unlinkSync(archivo);
+    });
+  }
+
+  ws.on("message", (raw, esBinario) => {
+    if (esBinario) {
+      if (escritor) {
+        escritor.write(raw);
+        bytes += raw.length;
+      }
+      return;
+    }
+
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+
+    if (msg.type === "iniciar") {
+      descartar(); // por si quedo una toma a medio grabar
+      const extension = msg.extension === "mp4" ? "mp4" : "webm";
+      parcial = path.join(GRABACIONES, `.parcial-${Date.now()}.${extension}`);
+      escritor = fs.createWriteStream(parcial);
+      bytes = 0;
+      log(origen, `grabando -> ${path.basename(parcial)}`);
+      enviar(ws, { type: "grabando" });
+      return;
+    }
+
+    if (msg.type === "guardar") {
+      if (!parcial || !escritor) return;
+      const archivo = parcial;
+      const ese = escritor;
+      const total = bytes;
+      parcial = null;
+      escritor = null;
+      const destino = path.join(GRABACIONES, `toma-${marcaDeTiempo()}${path.extname(archivo)}`);
+      ese.end(() => {
+        fs.renameSync(archivo, destino);
+        log(origen, `guardado: ${path.basename(destino)} (${(total / 1e6).toFixed(1)} MB)`);
+        enviar(ws, { type: "guardado", archivo: path.basename(destino), bytes: total });
+      });
+      return;
+    }
+
+    if (msg.type === "descartar") {
+      if (!parcial) return;
+      log(origen, "toma descartada");
+      descartar();
+      enviar(ws, { type: "descartado" });
+    }
+  });
+
+  // Si la pagina se cierra en medio de una toma, el parcial no sirve de nada.
+  ws.on("close", () => {
+    log(origen, "canal de grabacion cerrado");
+    descartar();
+  });
+}
+
+wss.on("connection", (ws, req) => {
+  const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
+  ws.origen = origen;
+  ws.vivo = true;
+  ws.on("pong", () => { ws.vivo = true; });
+  ws.on("error", (err) => log(origen, "error de socket:", err.message));
+
+  log(origen, "WebSocket abierto", req.url);
+
+  if ((req.url || "").startsWith("/grabacion")) manejarGrabacion(ws, origen);
+  else manejarSignaling(ws, origen);
 });
 
 // Sin esto, un iPhone que se duerme o se va de la red deja un socket colgado:
@@ -189,5 +309,5 @@ server.listen(PORT, "0.0.0.0", () => {
   for (const ip of ips) {
     console.log(`En el iPhone (Safari):   https://${ip}:${PORT}/phone.html`);
   }
-  console.log("");
+  console.log(`\nLas tomas se guardan en: ${GRABACIONES}\n`);
 });

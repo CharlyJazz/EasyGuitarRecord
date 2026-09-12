@@ -4,7 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "modelos": "node scripts/bajar-modelos.mjs",
+    "postinstall": "node scripts/bajar-modelos.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

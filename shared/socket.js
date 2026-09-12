@@ -88,6 +88,14 @@ export function crearSocket({ ruta = "", alAbrir, alMensaje, alCambiarEstado }) 
       }
       return false; // el que llama decide si vale la pena reintentar
     },
+    // Los trozos del MediaRecorder van como binario por el mismo canal.
+    enviarBinario(datos) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(datos);
+        return true;
+      }
+      return false;
+    },
     get listo() {
       return !!ws && ws.readyState === WebSocket.OPEN;
     },

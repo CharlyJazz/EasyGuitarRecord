@@ -1,5 +1,8 @@
 import { ICE_SERVERS } from "../shared/config.js";
 import { crearSocket, mantenerPantallaEncendida } from "../shared/socket.js";
+import { registrar, ponerEtiqueta } from "../shared/log.js";
+
+ponerEtiqueta("iphone");
 
 const preview = document.getElementById("preview");
 const estado = document.getElementById("estado");
@@ -7,6 +10,7 @@ const estado = document.getElementById("estado");
 function decir(texto, esError = false) {
   estado.textContent = texto;
   estado.classList.toggle("error", esError);
+  registrar(esError ? `AVISO ${texto}` : texto);
 }
 
 // El encoder arranca con un tope de un par de Mbps, pensado para internet.

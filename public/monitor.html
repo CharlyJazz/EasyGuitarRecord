@@ -7,20 +7,66 @@
     html, body { margin: 0; height: 100%; background: #000; color: #fff;
                  font: 14px system-ui, sans-serif; overflow: hidden; }
     #remote { width: 100vw; height: 100vh; object-fit: contain; display: block; }
+
     #estado { position: fixed; top: 0; left: 0; padding: 10px 14px;
               background: rgba(0,0,0,.6); }
     #estado.error { background: rgba(150,20,20,.9); }
     #estado.oculto { opacity: 0; transition: opacity .6s; }
+
     #stats { position: fixed; top: 0; right: 0; padding: 10px 14px;
              background: rgba(0,0,0,.7); font: 12px ui-monospace, Consolas, monospace;
              white-space: pre; line-height: 1.5; }
     #stats.oculto { display: none; }
+
+    /* Grabando: se tiene que ver de un vistazo desde lejos, con la guitarra
+       en la mano y sin poder acercarse a leer. */
+    #rec { position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+           display: none; align-items: center; gap: 10px;
+           padding: 8px 18px; border-radius: 999px;
+           background: rgba(200,30,30,.92); font-size: 17px; font-weight: 600; }
+    #rec.activo { display: flex; }
+    #punto { width: 13px; height: 13px; border-radius: 50%; background: #fff;
+             animation: latir 1s infinite; }
+    @keyframes latir { 50% { opacity: .15; } }
+
+    #aviso { position: fixed; top: 62px; left: 50%; transform: translateX(-50%);
+             padding: 8px 18px; border-radius: 8px; background: rgba(0,0,0,.8);
+             font-size: 16px; opacity: 0; transition: opacity .3s; }
+    #aviso.visible { opacity: 1; }
+    #aviso.bueno { background: rgba(25,120,50,.92); }
+    #aviso.malo { background: rgba(150,20,20,.92); }
+
+    #gestos { position: fixed; left: 0; bottom: 0; padding: 10px 14px;
+              background: rgba(0,0,0,.6); min-width: 230px; }
+    #gestos .barra { height: 4px; margin-top: 7px; background: rgba(255,255,255,.2); }
+    #gestos .relleno { height: 100%; width: 0; background: #fff; transition: width .08s linear; }
+
+    #ayuda { position: fixed; right: 0; bottom: 0; padding: 10px 14px;
+             background: rgba(0,0,0,.6); text-align: right; line-height: 1.7; }
+    #ayuda b { font-weight: 600; }
   </style>
 </head>
 <body>
   <video id="remote" autoplay playsinline></video>
+
   <div id="estado">Esperando al iPhone...</div>
   <div id="stats" class="oculto"></div>
+
+  <div id="rec"><span id="punto"></span><span id="reloj">0:00</span></div>
+  <div id="aviso"></div>
+
+  <div id="gestos">
+    <div id="gestoTexto">Gestos: cargando modelo...</div>
+    <div class="barra"><div class="relleno" id="gestoBarra"></div></div>
+  </div>
+
+  <div id="ayuda">
+    <b>palma abierta</b> · empezar / reiniciar toma<br>
+    <b>pulgar arriba</b> · guardar<br>
+    <b>pulgar abajo</b> · descartar<br>
+    <b>S</b> estadisticas · <b>F</b> pantalla completa
+  </div>
+
   <script type="module" src="monitor.js"></script>
 </body>
 </html>
