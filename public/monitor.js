@@ -228,7 +228,9 @@ let ocupado = false;   // evita que dos gestos seguidos se pisen
 const grabador = crearGrabador({
   alEstado: (e) => {
     registrar(`grabacion: ${e.estado} ${e.archivo || e.detalle || ""}`);
-    if (e.estado === "guardado") {
+    if (e.estado === "conservado") {
+      registrar(`toma reiniciada conservada como ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`);
+    } else if (e.estado === "guardado") {
       avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`, "bueno");
       refrescarGaleria();
     } else if (e.estado === "descartado") {
@@ -259,14 +261,28 @@ function hayVideo() {
   return remote.srcObject && remote.srcObject.getVideoTracks().some((t) => t.readyState === "live");
 }
 
+// Un reinicio a los dos segundos de empezar no es un reinicio, es el mismo
+// gesto contado dos veces (o el boton y el gesto pisandose).
+const EDAD_MINIMA_PARA_REINICIAR_S = 2;
+
 async function empezarToma(reinicio) {
   if (!hayVideo()) {
     avisar("No hay video del telefono todavia", "malo");
     return;
   }
-  if (grabador.grabando) await grabador.terminar("descartar");
+
+  if (grabador.grabando) {
+    if (grabador.segundos < EDAD_MINIMA_PARA_REINICIAR_S) {
+      registrar(`reinicio ignorado: la toma tiene ${grabador.segundos.toFixed(1)} s`);
+      return;
+    }
+    // A la papelera, no a la basura: si el reinicio fue sin querer, lo grabado
+    // hasta aca se recupera.
+    await grabador.terminar("conservar");
+  }
+
   if (grabador.iniciar(remote.srcObject)) {
-    avisar(reinicio ? "Toma reiniciada" : "Grabando", "");
+    avisar(reinicio ? "Toma reiniciada (la anterior va a la papelera)" : "Grabando", "");
   }
 }
 

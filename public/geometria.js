@@ -32,6 +32,20 @@ export function dedosEstirados(puntos) {
 // determinista.
 export const DEDOS_PARA_PALMA = 4;
 
+// Tamaño de la mano en el cuadro: distancia de la muñeca al nudillo del dedo
+// medio, en coordenadas normalizadas (0 a 1 sobre el alto/ancho del video).
+//
+// Sirve para distinguir un high five deliberado, que se hace cerca de la
+// camara, de una mano cualquiera que aparece lejos mientras se toca. Es la
+// diferencia entre "me esta haciendo una seña" y "esta tocando".
+const NUDILLO_MEDIO = 9;
+
+export function tamañoMano(puntos) {
+  const muñeca = puntos[0];
+  const nudillo = puntos[NUDILLO_MEDIO];
+  return Math.hypot(nudillo.x - muñeca.x, nudillo.y - muñeca.y);
+}
+
 export function esPalmaAbierta(puntos) {
   return dedosEstirados(puntos) >= DEDOS_PARA_PALMA;
 }

@@ -11,7 +11,7 @@
 
 import { FilesetResolver, GestureRecognizer } from "/vendor/vision_bundle.mjs";
 import { registrar } from "../shared/log.js";
-import { dedosEstirados, DEDOS_PARA_PALMA } from "./geometria.js";
+import { dedosEstirados, tamañoMano, DEDOS_PARA_PALMA } from "./geometria.js";
 
 // Nombres del modelo -> nombres nuestros.
 const TRADUCCION = {
@@ -22,6 +22,16 @@ const TRADUCCION = {
 
 // Hay que sostener el gesto: una mano que pasa delante de la camara tocando no
 // puede disparar una accion.
+//
+// La palma abierta pide bastante mas que los pulgares, y no es capricho:
+// reiniciar tira la toma en curso, mientras que guardar y descartar son
+// decisiones que uno toma cuando ya termino de tocar. Ademas una mano abierta
+// aparece sola todo el tiempo mientras se toca; un pulgar, no.
+const SOSTENIDO_POR_GESTO = {
+  high_five: 1600,
+  pulgar_arriba: 700,
+  pulgar_abajo: 700,
+};
 const SOSTENIDO_MS = 700;
 // Pero exigir cuadros CONSECUTIVOS por encima del umbral no funciona. Medido
 // sobre el video real, Open_Palm oscila entre 0.53 y 0.68: cruza el umbral un
@@ -40,8 +50,18 @@ const CONFIANZA_MINIMA = 0.45;
 const INTERVALO_MS = 80;
 const RESUMEN_MS = 1000;
 
-// Cuantos votos iguales hacen falta dentro de la ventana.
-const VOTOS_NECESARIOS = Math.ceil((VENTANA_MS / INTERVALO_MS) * FRACCION_MINIMA);
+// Cuantos votos iguales hacen falta dentro de la ventana, por gesto.
+function votosNecesarios(nombre) {
+  const sostenido = SOSTENIDO_POR_GESTO[nombre] ?? SOSTENIDO_MS;
+  return Math.ceil((sostenido / INTERVALO_MS) * FRACCION_MINIMA);
+}
+const VENTANA_EFECTIVA_MS = Math.max(...Object.values(SOSTENIDO_POR_GESTO)) + 400;
+
+// Un high five se hace cerca de la camara, a proposito. Una mano que anda por
+// ahi tocando queda chica en el cuadro. Medido sobre sesiones reales, este
+// corte separa una cosa de la otra sin pedirle al usuario que se acerque mas
+// de lo natural.
+const TAMAÑO_MINIMO_MANO = 0.10;
 
 export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato }) {
   registrar("gestos: cargando wasm desde /vendor/wasm");
@@ -73,7 +93,8 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
   }
   registrar(
     `gestos: modelo cargado con ${delegado} en ${(performance.now() - t1).toFixed(0)} ms, ` +
-      `votos necesarios ${VOTOS_NECESARIOS} en ${VENTANA_MS} ms`
+      `votos: palma ${votosNecesarios("high_five")}, pulgares ` +
+      `${votosNecesarios("pulgar_arriba")}, ventana ${VENTANA_EFECTIVA_MS} ms`
   );
 
   let corriendo = false;
@@ -94,6 +115,7 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
   let mejorScore = 0;
   let msInferencia = 0;
   let dedosUltimo = -1;
+  let tamañoUltimo = 0;
   let porGeometria = 0;
 
   // Lee un cuadro y devuelve el gesto crudo, mirando todas las manos.
@@ -120,10 +142,17 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     // geometria, que es la unica de las tres que le cuesta.
     for (const puntos of resultado.landmarks || []) {
       const n = dedosEstirados(puntos);
+      const tamaño = tamañoMano(puntos);
       dedosUltimo = n;
-      if (n >= DEDOS_PARA_PALMA) {
+      tamañoUltimo = tamaño;
+      if (n >= DEDOS_PARA_PALMA && tamaño >= TAMAÑO_MINIMO_MANO) {
         porGeometria += 1;
-        return { nombre: "high_five", categoria: `dedos:${n}`, score: 1, origen: "geometria" };
+        return {
+          nombre: "high_five",
+          categoria: `dedos:${n} tam:${tamaño.toFixed(2)}`,
+          score: 1,
+          origen: "geometria",
+        };
       }
     }
 
@@ -139,8 +168,8 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     registrar(
       `gestos: ${(inferencias / lapso).toFixed(1)}/s  ${msInferencia.toFixed(1)} ms  ` +
         `manos=${manosVistas}/${inferencias}  top=${mejorNombre} ${mejorScore.toFixed(2)}  ` +
-        `dedos=${dedosUltimo} geom=${porGeometria}  ` +
-        `votos=${conteo.ganador || "-"} ${conteo.cuenta}/${VOTOS_NECESARIOS}  ` +
+        `dedos=${dedosUltimo} tam=${tamañoUltimo.toFixed(2)} geom=${porGeometria}  ` +
+        `votos=${conteo.ganador || "-"} ${conteo.cuenta}/${votosNecesarios(conteo.ganador)}  ` +
         `video=${video.videoWidth}x${video.videoHeight} paused=${video.paused} ` +
         `saltados=${cuadrosSaltados}`
     );
@@ -159,10 +188,17 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
       if (!v.nombre) continue;
       cuentas.set(v.nombre, (cuentas.get(v.nombre) || 0) + 1);
     }
+    // Gana el que esta mas cerca de SU propio requisito, no el que tiene mas
+    // votos: la palma pide bastante mas que los pulgares, asi que comparar
+    // cuentas crudas dejaria a un pulgar listo esperando detras de una palma
+    // que todavia no alcanza.
     let ganador = null;
     let cuenta = 0;
+    let mejorAvance = 0;
     for (const [nombre, n] of cuentas) {
-      if (n > cuenta) {
+      const avance = n / votosNecesarios(nombre);
+      if (avance > mejorAvance) {
+        mejorAvance = avance;
         ganador = nombre;
         cuenta = n;
       }
@@ -205,14 +241,15 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
 
     // Un voto por inferencia, y afuera lo que se salio de la ventana.
     votos.push({ ts: ahora, nombre: crudo ? crudo.nombre : null });
-    while (votos.length && ahora - votos[0].ts > VENTANA_MS) votos.shift();
+    while (votos.length && ahora - votos[0].ts > VENTANA_EFECTIVA_MS) votos.shift();
 
     resumir(ahora);
 
     const { ganador, cuenta } = contar();
 
+    const necesarios = votosNecesarios(ganador);
     if (alCambiarCandidato) {
-      alCambiarCandidato(ganador, Math.min(1, cuenta / VOTOS_NECESARIOS), crudo);
+      alCambiarCandidato(ganador, Math.min(1, cuenta / necesarios), crudo);
     }
 
     // Se solto el gesto que ya habia disparado: ya puede volver a hacerse.
@@ -223,7 +260,7 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
       if (ganador) registrar(`gestos: juntando votos para ${ganador}`);
     }
 
-    if (!ganador || cuenta < VOTOS_NECESARIOS) return;
+    if (!ganador || cuenta < necesarios) return;
     if (ahora < bloqueadoHasta) return;
     if (yaDisparado === ganador) return;
 

@@ -288,6 +288,26 @@ function manejarGrabacion(ws, origen) {
       return;
     }
 
+    // Reiniciar una toma no puede significar destruirla. Se va a la papelera,
+    // igual que un borrado desde la galeria: si el reinicio fue un accidente,
+    // los minutos que ya habias grabado siguen ahi.
+    if (msg.type === "conservar") {
+      if (!parcial || !escritor) return;
+      const archivo = parcial;
+      const ese = escritor;
+      const total = bytes;
+      parcial = null;
+      escritor = null;
+      fs.mkdirSync(PAPELERA, { recursive: true });
+      const destino = path.join(PAPELERA, `reiniciada-${marcaDeTiempo()}${path.extname(archivo)}`);
+      ese.end(() => {
+        fs.renameSync(archivo, destino);
+        log(origen, `reiniciada -> papelera/${path.basename(destino)} (${(total / 1e6).toFixed(1)} MB)`);
+        enviar(ws, { type: "conservado", archivo: path.basename(destino), bytes: total });
+      });
+      return;
+    }
+
     if (msg.type === "descartar") {
       if (!parcial) return;
       log(origen, "toma descartada");

@@ -36,7 +36,9 @@ export function crearGrabador({ alEstado }) {
     ruta: "/grabacion",
     alMensaje: ({ data }) => {
       const msg = JSON.parse(data);
-      if (msg.type === "guardado") {
+      if (msg.type === "conservado") {
+        alEstado({ estado: "conservado", archivo: msg.archivo, bytes: msg.bytes });
+      } else if (msg.type === "guardado") {
         alEstado({ estado: "guardado", archivo: msg.archivo, bytes: msg.bytes });
       } else if (msg.type === "descartado") {
         alEstado({ estado: "descartado" });
