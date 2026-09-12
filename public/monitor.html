@@ -36,6 +36,12 @@
     #aviso.bueno { background: rgba(25,120,50,.92); }
     #aviso.malo { background: rgba(150,20,20,.92); }
 
+    /* Ultimo recurso si el navegador igual se niega a reproducir solo. */
+    #tocarParaVer { position: fixed; inset: 0; display: none;
+                    align-items: center; justify-content: center;
+                    background: rgba(0,0,0,.75); font-size: 22px; cursor: pointer; }
+    #tocarParaVer.visible { display: flex; }
+
     #gestos { position: fixed; left: 0; bottom: 0; padding: 10px 14px;
               background: rgba(0,0,0,.6); min-width: 230px; }
     #gestos .barra { height: 4px; margin-top: 7px; background: rgba(255,255,255,.2); }
@@ -47,13 +53,18 @@
   </style>
 </head>
 <body>
-  <video id="remote" autoplay playsinline></video>
+  <!-- muted no es opcional: Chrome bloquea el autoplay de un video que no
+       este silenciado si no hubo interaccion con la pagina, y el stream se
+       queda en pausa mostrando negro. No hay audio que perder: el telefono
+       captura con audio:false. -->
+  <video id="remote" autoplay playsinline muted></video>
 
   <div id="estado">Esperando al iPhone...</div>
   <div id="stats" class="oculto"></div>
 
   <div id="rec"><span id="punto"></span><span id="reloj">0:00</span></div>
   <div id="aviso"></div>
+  <div id="tocarParaVer">Hacé clic para ver el video</div>
 
   <div id="gestos">
     <div id="gestoTexto">Gestos: cargando modelo...</div>

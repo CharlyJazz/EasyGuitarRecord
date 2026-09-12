@@ -15,6 +15,36 @@ function decir(texto, esError = false) {
   estado.classList.remove("oculto");
 }
 
+const tocarParaVer = document.getElementById("tocarParaVer");
+
+// El elemento tiene que estar silenciado o Chrome no lo deja arrancar solo, y
+// se queda en pausa mostrando negro con los cuadros ya cargados.
+remote.muted = true;
+
+async function reproducir(motivo) {
+  if (!remote.srcObject) return;
+  try {
+    await remote.play();
+    tocarParaVer.classList.remove("visible");
+    registrar(`video: reproduciendo (${motivo})`);
+  } catch (err) {
+    // Este error es el que explica la pantalla negra: no se traga nunca.
+    registrar(`video: play() rechazado (${motivo}): ${err.name} ${err.message}`);
+    tocarParaVer.classList.add("visible");
+  }
+}
+
+tocarParaVer.addEventListener("click", () => reproducir("clic del usuario"));
+
+// Vigilancia: si el elemento queda en pausa con cuadros disponibles, algo lo
+// freno y hay que insistir. Sin esto la pagina se queda negra en silencio.
+setInterval(() => {
+  if (remote.srcObject && remote.paused && remote.readyState >= 2) {
+    registrar(`video: quedo en pausa (ready=${remote.readyState}), reintentando`);
+    reproducir("estaba en pausa");
+  }
+}, 2000);
+
 let pc = null;
 // Los candidatos del telefono pueden llegar mientras todavia estamos
 // procesando la oferta. addIceCandidate antes del setRemoteDescription tira,
@@ -36,7 +66,7 @@ function nuevaConexion() {
 
   pc.ontrack = (e) => {
     remote.srcObject = e.streams[0];
-    remote.play().catch(() => {});
+    reproducir("llego el track");
     decir("Recibiendo");
     setTimeout(() => estado.classList.add("oculto"), 2000);
     arrancarGestos();
