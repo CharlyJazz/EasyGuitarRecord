@@ -1,4 +1,5 @@
 import { ICE_SERVERS } from "../shared/config.js";
+import { crearSocket, mantenerPantallaEncendida } from "../shared/socket.js";
 
 const preview = document.getElementById("preview");
 const estado = document.getElementById("estado");
@@ -8,42 +9,107 @@ function decir(texto, esError = false) {
   estado.classList.toggle("error", esError);
 }
 
-// wss cuando la pagina es https, que es siempre en este setup. Un ws:// desde
-// una pagina https lo bloquea el navegador por mixed content.
-const proto = location.protocol === "https:" ? "wss" : "ws";
-const ws = new WebSocket(`${proto}://${location.host}`);
-const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-
-ws.onopen = () => ws.send(JSON.stringify({ type: "register", role: "phone" }));
-ws.onerror = () => decir("No se pudo conectar al servidor", true);
-
-ws.onmessage = async ({ data }) => {
-  const msg = JSON.parse(data);
-  if (msg.type === "answer") {
-    await pc.setRemoteDescription(msg.answer);
-    await subirCalidad();
-  } else if (msg.type === "ice" && msg.from !== "phone") {
-    await pc.addIceCandidate(msg.candidate);
-  }
-};
-
-pc.onicecandidate = (e) => {
-  if (e.candidate) {
-    ws.send(JSON.stringify({ type: "ice", to: "monitor", from: "phone", candidate: e.candidate }));
-  }
-};
-
-pc.onconnectionstatechange = () => {
-  const s = pc.connectionState;
-  if (s === "connected") decir("Transmitiendo a la PC");
-  else if (s === "failed" || s === "disconnected") decir(`Conexion ${s}`, true);
-};
-
 // El encoder arranca con un tope de un par de Mbps, pensado para internet.
 // En una LAN sobra ancho de banda, asi que lo levantamos. maintain-resolution
 // le dice que ante un apreton sacrifique fluidez antes que nitidez, que es lo
 // que uno quiere cuando esta mirando el encuadre.
 const BITRATE_MAXIMO = 12_000_000;
+
+let stream = null;       // la camara se pide UNA vez y sobrevive a las caidas
+let pc = null;
+let monitorPresente = false;
+let renegociando = false;
+
+// ------------------------------------------------------------------ señalizacion
+const socket = crearSocket({
+  alAbrir: () => {
+    socket.enviar({ type: "register", role: "phone" });
+    // Si ya teniamos camara, esto es una reconexion: hay que rearmar el video.
+    if (stream) renegociar("socket reconectado");
+  },
+  alMensaje: async ({ data }) => {
+    const msg = JSON.parse(data);
+
+    if (msg.type === "peer" && msg.role === "monitor") {
+      monitorPresente = msg.presente;
+      if (msg.presente && stream) renegociar("el monitor volvio");
+      else if (!msg.presente) decir("Esperando al monitor de la PC...");
+      return;
+    }
+
+    if (msg.type === "answer" && pc) {
+      await pc.setRemoteDescription(msg.answer);
+      await subirCalidad();
+      return;
+    }
+
+    if (msg.type === "ice" && msg.from !== "phone" && pc) {
+      try {
+        await pc.addIceCandidate(msg.candidate);
+      } catch {
+        // Candidato de una negociacion ya vencida: se descarta sin ruido.
+      }
+    }
+  },
+  alCambiarEstado: (est, detalle) => {
+    if (est === "reconectando") decir(`Reconectando (intento ${detalle.intentos})...`, true);
+    else if (est === "cerrado") decir("Se corto la conexion, reintentando...", true);
+  },
+});
+
+// ------------------------------------------------------------------- webrtc
+function nuevaConexion() {
+  if (pc) {
+    pc.onconnectionstatechange = null;
+    pc.close();
+  }
+
+  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      socket.enviar({ type: "ice", to: "monitor", from: "phone", candidate: e.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if (s === "connected") decir("Transmitiendo a la PC");
+    else if (s === "failed") {
+      decir("Se cayo el video, rearmando...", true);
+      renegociar("la conexion fallo");
+    } else if (s === "disconnected") {
+      decir("Video interrumpido, esperando...", true);
+      // disconnected suele recuperarse solo; si en 4 segundos no volvio,
+      // rearmamos en vez de quedarnos colgados para siempre.
+      setTimeout(() => {
+        if (pc && pc.connectionState !== "connected") renegociar("no se recupero");
+      }, 4000);
+    }
+  };
+
+  return pc;
+}
+
+async function renegociar(motivo) {
+  if (!stream || renegociando) return;
+  if (!socket.listo) return;
+
+  renegociando = true;
+  try {
+    decir(`Rearmando el video (${motivo})...`);
+    const conexion = nuevaConexion();
+    for (const track of stream.getTracks()) conexion.addTrack(track, stream);
+
+    const offer = await conexion.createOffer();
+    await conexion.setLocalDescription(offer);
+    socket.enviar({ type: "offer", to: "monitor", offer });
+  } catch (err) {
+    decir(`No se pudo rearmar: ${err.message}`, true);
+  } finally {
+    renegociando = false;
+  }
+}
 
 async function subirCalidad() {
   const emisor = pc.getSenders().find((s) => s.track && s.track.kind === "video");
@@ -63,6 +129,7 @@ async function subirCalidad() {
   }
 }
 
+// ------------------------------------------------------------------- camara
 async function pedirCamara() {
   const base = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
   try {
@@ -86,15 +153,15 @@ async function start() {
   // Safari exige que esto salga de un gesto del usuario.
   if (!navigator.mediaDevices?.getUserMedia) {
     decir("Este navegador no expone la camara. Tiene que ser https.", true);
+    armar();
     return;
   }
 
   try {
     decir("Pidiendo camara...");
-    const stream = await pedirCamara();
+    stream = await pedirCamara();
 
     preview.srcObject = stream;
-
     // iOS no siempre arranca solo con autoplay aunque este muted+playsinline,
     // y cuando no arranca no avisa: queda un rectangulo negro.
     try {
@@ -103,14 +170,26 @@ async function start() {
       decir(`El preview no arranco (${err.name}). El envio sigue igual.`, true);
     }
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+    // Sin esto la pantalla se bloquea sola, iOS suspende la pagina y se corta
+    // la camara. Es la causa mas comun de "se desconecto de la nada".
+    await mantenerPantallaEncendida((err) =>
+      console.warn("wakeLock no disponible:", err.name)
+    );
+
+    // Una pista que muere (camara tomada por otra app, permiso revocado) no
+    // dispara ningun evento de conexion: hay que mirarla aparte.
+    for (const track of stream.getTracks()) {
+      track.addEventListener("ended", () => {
+        decir("La camara se cerro. Tocá para volver a pedirla.", true);
+        stream = null;
+        armar();
+      });
+    }
 
     const { width, height } = stream.getVideoTracks()[0].getSettings();
     decir(`Camara ${width}x${height} - negociando...`);
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    ws.send(JSON.stringify({ type: "offer", to: "monitor", offer }));
+    await renegociar("primera conexion");
   } catch (err) {
     decir(`${err.name}: ${err.message}`, true);
     armar(); // que pueda reintentar con otro toque
@@ -124,7 +203,8 @@ estado.addEventListener("click", (e) => {
   const v = preview;
   decir(
     `video ${v.videoWidth}x${v.videoHeight} readyState=${v.readyState} ` +
-      `paused=${v.paused} pistas=${v.srcObject ? v.srcObject.getTracks().length : 0}`
+      `paused=${v.paused} pc=${pc ? pc.connectionState : "-"} ` +
+      `socket=${socket.listo ? "ok" : "caido"} monitor=${monitorPresente}`
   );
 });
 

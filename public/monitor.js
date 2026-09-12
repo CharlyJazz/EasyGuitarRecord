@@ -1,4 +1,5 @@
 import { ICE_SERVERS } from "../shared/config.js";
+import { crearSocket } from "../shared/socket.js";
 
 const remote = document.getElementById("remote");
 const estado = document.getElementById("estado");
@@ -9,9 +10,6 @@ function decir(texto, esError = false) {
   estado.classList.remove("oculto");
 }
 
-const proto = location.protocol === "https:" ? "wss" : "ws";
-const ws = new WebSocket(`${proto}://${location.host}`);
-
 let pc = null;
 // Los candidatos del telefono pueden llegar mientras todavia estamos
 // procesando la oferta. addIceCandidate antes del setRemoteDescription tira,
@@ -19,10 +17,13 @@ let pc = null;
 let hayRemota = false;
 let candidatosEnEspera = [];
 
-// Cada oferta nueva es una sesion nueva: si recargas la pagina del telefono,
-// la conexion vieja ya no sirve y reusarla deja el monitor en negro.
+// Cada oferta nueva es una sesion nueva: si el telefono se reconecta, la
+// conexion vieja ya no sirve y reusarla deja el monitor en negro.
 function nuevaConexion() {
-  if (pc) pc.close();
+  if (pc) {
+    pc.onconnectionstatechange = null;
+    pc.close();
+  }
   hayRemota = false;
   candidatosEnEspera = [];
 
@@ -37,41 +38,63 @@ function nuevaConexion() {
 
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      ws.send(JSON.stringify({ type: "ice", to: "phone", from: "monitor", candidate: e.candidate }));
+      socket.enviar({ type: "ice", to: "phone", from: "monitor", candidate: e.candidate });
     }
   };
 
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
-    if (s === "failed" || s === "disconnected") decir(`Conexion ${s}`, true);
+    // El que rearma es el telefono, que es el que emite la oferta. Aca solo
+    // informamos; si no vuelve, el aviso de "peer" lo va a disparar.
+    if (s === "failed") decir("Se cayo el video, esperando al telefono...", true);
+    else if (s === "disconnected") decir("Video interrumpido...", true);
   };
 
   return pc;
 }
 
-ws.onopen = () => ws.send(JSON.stringify({ type: "register", role: "monitor" }));
-ws.onerror = () => decir("No se pudo conectar al servidor", true);
-ws.onclose = () => decir("Se corto la conexion con el servidor", true);
+const socket = crearSocket({
+  alAbrir: () => socket.enviar({ type: "register", role: "monitor" }),
+  alMensaje: async ({ data }) => {
+    const msg = JSON.parse(data);
 
-ws.onmessage = async ({ data }) => {
-  const msg = JSON.parse(data);
-
-  if (msg.type === "offer") {
-    decir("Oferta recibida, negociando...");
-    const conexion = nuevaConexion();
-    await conexion.setRemoteDescription(msg.offer);
-    hayRemota = true;
-    while (candidatosEnEspera.length) {
-      await conexion.addIceCandidate(candidatosEnEspera.shift());
+    if (msg.type === "peer" && msg.role === "phone") {
+      if (!msg.presente) decir("El telefono se desconecto, esperando...", true);
+      else decir("El telefono volvio, negociando...");
+      return;
     }
-    const answer = await conexion.createAnswer();
-    await conexion.setLocalDescription(answer);
-    ws.send(JSON.stringify({ type: "answer", to: "phone", answer }));
-  } else if (msg.type === "ice" && msg.from !== "monitor") {
-    if (pc && hayRemota) await pc.addIceCandidate(msg.candidate);
-    else candidatosEnEspera.push(msg.candidate);
-  }
-};
+
+    if (msg.type === "offer") {
+      decir("Oferta recibida, negociando...");
+      const conexion = nuevaConexion();
+      await conexion.setRemoteDescription(msg.offer);
+      hayRemota = true;
+      while (candidatosEnEspera.length) {
+        await conexion.addIceCandidate(candidatosEnEspera.shift());
+      }
+      const answer = await conexion.createAnswer();
+      await conexion.setLocalDescription(answer);
+      socket.enviar({ type: "answer", to: "phone", answer });
+      return;
+    }
+
+    if (msg.type === "ice" && msg.from !== "monitor") {
+      if (pc && hayRemota) {
+        try {
+          await pc.addIceCandidate(msg.candidate);
+        } catch {
+          // Candidato de una negociacion vencida.
+        }
+      } else {
+        candidatosEnEspera.push(msg.candidate);
+      }
+    }
+  },
+  alCambiarEstado: (est, detalle) => {
+    if (est === "reconectando") decir(`Reconectando al servidor (intento ${detalle.intentos})...`, true);
+    else if (est === "cerrado") decir("Se corto la conexion con el servidor, reintentando...", true);
+  },
+});
 
 // ------------------------------------------------------------ estadisticas
 // Lo que realmente esta llegando, no lo que pedimos. Tecla S para verlo.
@@ -107,12 +130,9 @@ async function medir() {
 
   panel.textContent =
     `${video.frameWidth || "?"}x${video.frameHeight || "?"}  ` +
-    `${(video.framesPerSecond ?? 0).toFixed(0)} fps
-` +
-    `${(kbps / 1000).toFixed(2)} Mbps   ${nombreCodec}
-` +
-    `perdida ${porcentajePerdida.toFixed(2)}%   jitter ${((video.jitter ?? 0) * 1000).toFixed(0)} ms
-` +
+    `${(video.framesPerSecond ?? 0).toFixed(0)} fps\n` +
+    `${(kbps / 1000).toFixed(2)} Mbps   ${nombreCodec}\n` +
+    `perdida ${porcentajePerdida.toFixed(2)}%   jitter ${((video.jitter ?? 0) * 1000).toFixed(0)} ms\n` +
     `descartados ${video.framesDropped ?? 0}   nack ${video.nackCount ?? 0}`;
 }
 
