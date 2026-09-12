@@ -69,6 +69,15 @@ async function start() {
     const stream = await pedirCamara();
 
     preview.srcObject = stream;
+
+    // iOS no siempre arranca solo con autoplay aunque este muted+playsinline,
+    // y cuando no arranca no avisa: queda un rectangulo negro.
+    try {
+      await preview.play();
+    } catch (err) {
+      decir(`El preview no arranco (${err.name}). El envio sigue igual.`, true);
+    }
+
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     const { width, height } = stream.getVideoTracks()[0].getSettings();
@@ -82,6 +91,17 @@ async function start() {
     armar(); // que pueda reintentar con otro toque
   }
 }
+
+// Un toque sobre el cartel muestra el estado real del elemento de video.
+// Sin consola en el telefono, esta es la unica forma de ver por que no pinta.
+estado.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const v = preview;
+  decir(
+    `video ${v.videoWidth}x${v.videoHeight} readyState=${v.readyState} ` +
+      `paused=${v.paused} pistas=${v.srcObject ? v.srcObject.getTracks().length : 0}`
+  );
+});
 
 function armar() {
   document.body.addEventListener("click", start, { once: true });

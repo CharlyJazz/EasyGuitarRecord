@@ -63,6 +63,15 @@ function cargarCertificado(ips) {
 
 // -------------------------------------------------------------------- estatico
 const app = express();
+
+// Registro de cada pedido con la IP de origen. Sirve para distinguir "el
+// telefono no llega al servidor" (nada aparece) de "llega y falla despues".
+app.use((req, res, next) => {
+  const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
+  console.log(`${new Date().toLocaleTimeString()}  ${origen}  ${req.method} ${req.url}`);
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 // phone.js y monitor.js importan ../shared/config.js, que el navegador pide
 // como /shared/config.js. Sin esto el modulo tira 404 y la pagina no arranca.
@@ -81,7 +90,10 @@ function enviar(ws, texto) {
   if (ws && ws.readyState === ws.OPEN) ws.send(texto);
 }
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  const origen = (req.socket.remoteAddress || "?").replace("::ffff:", "");
+  console.log(`${new Date().toLocaleTimeString()}  ${origen}  WebSocket abierto`);
+
   ws.on("message", (raw) => {
     let msg;
     try {

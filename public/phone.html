@@ -7,7 +7,10 @@
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff;
                  font: 15px -apple-system, system-ui, sans-serif; }
-    #preview { width: 100%; height: 100%; object-fit: contain; }
+    /* Fijo y ocupando todo: como elemento inline dentro de body arrastraba
+       el hueco de la linea base y podia quedar fuera de vista. */
+    #preview { position: fixed; inset: 0; width: 100%; height: 100%;
+               object-fit: contain; display: block; background: #000; }
     #estado { position: fixed; left: 0; right: 0; bottom: 0;
               padding: 14px calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-bottom));
               background: rgba(0,0,0,.65); text-align: center; }
