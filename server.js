@@ -99,6 +99,36 @@ app.post("/api/log", express.json({ limit: "1mb" }), (req, res) => {
   res.sendStatus(204);
 });
 
+// Solo los nombres que genera este servidor. Sin esto, un ".." en la ruta
+// dejaria borrar cualquier archivo de la maquina.
+const NOMBRE_DE_TOMA = /^toma-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.(mp4|webm)$/;
+const PAPELERA = path.join(GRABACIONES, ".papelera");
+
+// Borrar es mover a la papelera, no destruir. Una toma buena que se va por un
+// clic de mas no se recupera de ninguna otra forma.
+app.delete("/api/grabaciones/:nombre", (req, res) => {
+  const nombre = req.params.nombre;
+  if (!NOMBRE_DE_TOMA.test(nombre)) {
+    return res.status(400).json({ error: "nombre invalido" });
+  }
+
+  const origenArchivo = path.join(GRABACIONES, nombre);
+  if (!fs.existsSync(origenArchivo)) {
+    return res.status(404).json({ error: "no existe" });
+  }
+
+  fs.mkdirSync(PAPELERA, { recursive: true });
+  let destino = path.join(PAPELERA, nombre);
+  // Si ya hay una con ese nombre, no pisamos la anterior.
+  if (fs.existsSync(destino)) {
+    destino = path.join(PAPELERA, `${Date.now()}-${nombre}`);
+  }
+
+  fs.renameSync(origenArchivo, destino);
+  log("api", `a la papelera: ${nombre}`);
+  res.json({ ok: true, papelera: path.basename(destino) });
+});
+
 app.get("/api/grabaciones", (req, res) => {
   const archivos = fs
     .readdirSync(GRABACIONES)

@@ -326,6 +326,28 @@ function abrirToma(nombre) {
   window.open(`/grabaciones/${encodeURIComponent(nombre)}`, nombre, "width=900,height=640");
 }
 
+async function borrarToma(nombre) {
+  if (!confirm(`¿Mover a la papelera?
+
+${nombre}`)) return;
+
+  try {
+    const respuesta = await fetch(`/api/grabaciones/${encodeURIComponent(nombre)}`, {
+      method: "DELETE",
+    });
+    if (!respuesta.ok) {
+      const detalle = await respuesta.json().catch(() => ({}));
+      throw new Error(detalle.error || respuesta.status);
+    }
+    registrar(`galeria: ${nombre} a la papelera`);
+    avisar("Movida a grabaciones/.papelera", "");
+    refrescarGaleria();
+  } catch (err) {
+    avisar(`No se pudo borrar: ${err.message}`, "malo");
+    registrar(`galeria: fallo el borrado de ${nombre}: ${err.message}`);
+  }
+}
+
 async function refrescarGaleria() {
   let tomas;
   try {
@@ -368,7 +390,29 @@ async function refrescarGaleria() {
     detalle.textContent = tamaño(toma.bytes);
     pie.append(titulo, detalle);
 
-    tarjeta.append(mini, pie);
+    const acciones = document.createElement("div");
+    acciones.className = "acciones";
+
+    // Descargar es un ancla comun con download: el navegador lo resuelve solo
+    // y respeta el nombre del archivo.
+    const bajar = document.createElement("a");
+    bajar.href = `/grabaciones/${encodeURIComponent(toma.nombre)}`;
+    bajar.download = toma.nombre;
+    bajar.textContent = "⬇ Guardar";
+    bajar.title = "Descargar una copia";
+    bajar.addEventListener("click", (e) => e.stopPropagation());
+
+    const borrar = document.createElement("button");
+    borrar.className = "borrar";
+    borrar.textContent = "🗑 Borrar";
+    borrar.title = "Mover a la papelera";
+    borrar.addEventListener("click", (e) => {
+      e.stopPropagation();   // si no, tambien abriria la ventana de la toma
+      borrarToma(toma.nombre);
+    });
+
+    acciones.append(bajar, borrar);
+    tarjeta.append(mini, pie, acciones);
     tarjeta.addEventListener("click", () => abrirToma(toma.nombre));
     galeriaGrid.append(tarjeta);
   }

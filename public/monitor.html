@@ -54,6 +54,13 @@
                   background: #000; pointer-events: none; }
     .toma .pie { padding: 5px 6px; font-size: 11px; line-height: 1.35; }
     .toma .pie b { display: block; font-weight: 600; }
+    .toma .acciones { display: flex; border-top: 1px solid #262626; }
+    .toma .acciones > * { flex: 1; font: inherit; font-size: 12px; text-align: center;
+                          color: #b9b9b9; background: transparent; border: 0;
+                          padding: 6px 0; cursor: pointer; text-decoration: none; }
+    .toma .acciones > * + * { border-left: 1px solid #262626; }
+    .toma .acciones > *:hover { background: #242424; color: #fff; }
+    .toma .acciones .borrar:hover { background: #5a1a1a; }
     .toma .pie span { color: #8a8a8a; }
 
     #galeriaVacia { grid-column: 1 / -1; color: #7a7a7a; padding: 10px 4px;
