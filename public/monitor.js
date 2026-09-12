@@ -274,14 +274,17 @@ async function alGesto(nombre) {
   }
 }
 
-function alCambiarCandidato(nombre, avance, mano) {
+function alCambiarCandidato(nombre, avance, crudo) {
   gestoBarra.style.width = `${Math.round(100 * avance)}%`;
-  // El crudo del modelo va siempre a la vista: si ve la mano pero la llama
-  // distinto, o si se queda corto de confianza, se nota sin abrir la consola.
-  const crudo = mano ? `${mano.categoryName} ${mano.score.toFixed(2)}` : "sin mano";
+  // El crudo va siempre a la vista: si el modelo ve la mano pero la llama
+  // distinto, o si el que la reconocio fue el respaldo geometrico, se nota sin
+  // abrir la consola.
+  const detalle = crudo
+    ? `${crudo.categoria} ${crudo.score.toFixed(2)} via ${crudo.origen}`
+    : "sin gesto";
   gestoTexto.textContent = nombre
-    ? `Gesto: ${ETIQUETA_GESTO[nombre]}  (${crudo})`
-    : `Gestos: listos  (${crudo})`;
+    ? `${ETIQUETA_GESTO[nombre]}  ${Math.round(100 * avance)}%  (${detalle})`
+    : `Listo  (${detalle})`;
 }
 
 async function arrancarGestos() {

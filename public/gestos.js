@@ -11,6 +11,7 @@
 
 import { FilesetResolver, GestureRecognizer } from "/vendor/vision_bundle.mjs";
 import { registrar } from "../shared/log.js";
+import { dedosEstirados, DEDOS_PARA_PALMA } from "./geometria.js";
 
 // Nombres del modelo -> nombres nuestros.
 const TRADUCCION = {
@@ -19,19 +20,28 @@ const TRADUCCION = {
   Thumb_Down: "pulgar_abajo",
 };
 
-// Una mano que pasa tocando delante de la camara no puede disparar una accion.
-// Hay que sostener el gesto.
+// Hay que sostener el gesto: una mano que pasa delante de la camara tocando no
+// puede disparar una accion.
 const SOSTENIDO_MS = 700;
+// Pero exigir cuadros CONSECUTIVOS por encima del umbral no funciona. Medido
+// sobre el video real, Open_Palm oscila entre 0.53 y 0.68: cruza el umbral un
+// cuadro y vuelve a caer, y el contador se reiniciaba siempre. Se vota sobre
+// una ventana de tiempo, como el suavizador del prototipo de GuitarCam:
+// alcanza con que la mayoria de la ventana coincida.
+const VENTANA_MS = 1000;
+const FRACCION_MINIMA = 0.55;
 // Despues de disparar, ignoramos todo un rato: si no, un high five sostenido
 // dispararia veinte veces por segundo.
 const ENFRIAMIENTO_MS = 1500;
-// Por debajo de esto el modelo esta adivinando.
-const CONFIANZA_MINIMA = 0.6;
-// Inferir en cada cuadro es desperdicio: 12 por segundo alcanza de sobra para
-// un gesto que hay que sostener 700 ms.
+// Por debajo de esto el clasificador esta adivinando. Baja de 0.6 a 0.45 por
+// lo mismo: el puntaje real de un gesto bien hecho vive en esa banda.
+const CONFIANZA_MINIMA = 0.45;
+// Inferir en cada cuadro es desperdicio: 12 por segundo alcanza de sobra.
 const INTERVALO_MS = 80;
-// Cada cuanto resumir en el log lo que el modelo esta viendo.
 const RESUMEN_MS = 1000;
+
+// Cuantos votos iguales hacen falta dentro de la ventana.
+const VOTOS_NECESARIOS = Math.ceil((VENTANA_MS / INTERVALO_MS) * FRACCION_MINIMA);
 
 export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato }) {
   registrar("gestos: cargando wasm desde /vendor/wasm");
@@ -43,7 +53,8 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     return GestureRecognizer.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: "/modelos/gesture_recognizer.task", delegate },
       runningMode: "VIDEO",
-      numHands: 1,
+      // Dos manos: con la guitarra encima, cual queda libre depende del momento.
+      numHands: 2,
       minHandDetectionConfidence: 0.5,
       minHandPresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -60,16 +71,19 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     delegado = "CPU";
     reconocedor = await construir("CPU");
   }
-  registrar(`gestos: modelo cargado con ${delegado} en ${(performance.now() - t1).toFixed(0)} ms`);
+  registrar(
+    `gestos: modelo cargado con ${delegado} en ${(performance.now() - t1).toFixed(0)} ms, ` +
+      `votos necesarios ${VOTOS_NECESARIOS} en ${VENTANA_MS} ms`
+  );
 
   let corriendo = false;
   let ultimaInferencia = 0;
   let ultimoTimestamp = 0;
 
-  let candidato = null;        // gesto que se esta sosteniendo ahora
-  let candidatoDesde = 0;
+  const votos = [];            // { ts, nombre } de la ventana
   let bloqueadoHasta = 0;
   let yaDisparado = null;      // hay que soltar el gesto antes de repetirlo
+  let ultimoAnunciado = null;
 
   // Para el resumen periodico del log.
   let ultimoResumen = 0;
@@ -79,17 +93,56 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
   let mejorNombre = "-";
   let mejorScore = 0;
   let msInferencia = 0;
+  let dedosUltimo = -1;
+  let porGeometria = 0;
+
+  // Lee un cuadro y devuelve el gesto crudo, mirando todas las manos.
+  function leerGesto(resultado) {
+    let elegido = null;   // { nombre, categoria, score, origen }
+
+    const manos = resultado.gestures || [];
+    for (let i = 0; i < manos.length; i += 1) {
+      const c = manos[i]?.[0];
+      if (!c) continue;
+      if (c.score > mejorScore) {
+        mejorScore = c.score;
+        mejorNombre = c.categoryName;
+      }
+      const nombre = c.score >= CONFIANZA_MINIMA ? TRADUCCION[c.categoryName] : undefined;
+      if (nombre && (!elegido || c.score > elegido.score)) {
+        elegido = { nombre, categoria: c.categoryName, score: c.score, origen: "modelo" };
+      }
+    }
+
+    if (elegido) return elegido;
+
+    // El clasificador no se decidio. Para la palma abierta preguntamos a la
+    // geometria, que es la unica de las tres que le cuesta.
+    for (const puntos of resultado.landmarks || []) {
+      const n = dedosEstirados(puntos);
+      dedosUltimo = n;
+      if (n >= DEDOS_PARA_PALMA) {
+        porGeometria += 1;
+        return { nombre: "high_five", categoria: `dedos:${n}`, score: 1, origen: "geometria" };
+      }
+    }
+
+    return null;
+  }
 
   function resumir(ahora) {
     if (ahora - ultimoResumen < RESUMEN_MS) return;
     const lapso = (ahora - ultimoResumen) / 1000;
     ultimoResumen = ahora;
 
+    const conteo = contar();
     registrar(
       `gestos: ${(inferencias / lapso).toFixed(1)}/s  ${msInferencia.toFixed(1)} ms  ` +
         `manos=${manosVistas}/${inferencias}  top=${mejorNombre} ${mejorScore.toFixed(2)}  ` +
-        `umbral=${CONFIANZA_MINIMA}  video=${video.videoWidth}x${video.videoHeight} ` +
-        `ready=${video.readyState} paused=${video.paused}  saltados=${cuadrosSaltados}`
+        `dedos=${dedosUltimo} geom=${porGeometria}  ` +
+        `votos=${conteo.ganador || "-"} ${conteo.cuenta}/${VOTOS_NECESARIOS}  ` +
+        `video=${video.videoWidth}x${video.videoHeight} paused=${video.paused} ` +
+        `saltados=${cuadrosSaltados}`
     );
 
     inferencias = 0;
@@ -97,6 +150,24 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     manosVistas = 0;
     mejorNombre = "-";
     mejorScore = 0;
+    porGeometria = 0;
+  }
+
+  function contar() {
+    const cuentas = new Map();
+    for (const v of votos) {
+      if (!v.nombre) continue;
+      cuentas.set(v.nombre, (cuentas.get(v.nombre) || 0) + 1);
+    }
+    let ganador = null;
+    let cuenta = 0;
+    for (const [nombre, n] of cuentas) {
+      if (n > cuenta) {
+        ganador = nombre;
+        cuenta = n;
+      }
+    }
+    return { ganador, cuenta };
   }
 
   function procesar(ahora) {
@@ -127,50 +198,40 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     }
     msInferencia = performance.now() - antes;
     inferencias += 1;
-
-    const mano = resultado.gestures?.[0]?.[0];
     if (resultado.landmarks?.length) manosVistas += 1;
+    else dedosUltimo = -1;
 
-    // Se registra el crudo, antes del umbral y de la traduccion: si el modelo
-    // ve la mano pero llama distinto al gesto, aca se ve.
-    if (mano && mano.score > mejorScore) {
-      mejorScore = mano.score;
-      mejorNombre = mano.categoryName;
-    }
+    const crudo = leerGesto(resultado);
+
+    // Un voto por inferencia, y afuera lo que se salio de la ventana.
+    votos.push({ ts: ahora, nombre: crudo ? crudo.nombre : null });
+    while (votos.length && ahora - votos[0].ts > VENTANA_MS) votos.shift();
+
     resumir(ahora);
 
-    const nombre = mano && mano.score >= CONFIANZA_MINIMA ? TRADUCCION[mano.categoryName] : undefined;
+    const { ganador, cuenta } = contar();
 
-    if (!nombre) {
-      if (candidato) registrar(`gestos: se solto ${candidato}`);
-      candidato = null;
-      yaDisparado = null;   // solto el gesto: ya puede volver a hacerlo
-      if (alCambiarCandidato) alCambiarCandidato(null, 0, mano);
-      return;
-    }
-
-    if (nombre !== candidato) {
-      candidato = nombre;
-      candidatoDesde = ahora;
-      registrar(`gestos: empieza a sostener ${nombre} (${mano.categoryName} ${mano.score.toFixed(2)})`);
-    }
-
-    const sostenido = ahora - candidatoDesde;
     if (alCambiarCandidato) {
-      alCambiarCandidato(candidato, Math.min(1, sostenido / SOSTENIDO_MS), mano);
+      alCambiarCandidato(ganador, Math.min(1, cuenta / VOTOS_NECESARIOS), crudo);
     }
 
-    if (sostenido < SOSTENIDO_MS) return;
-    if (ahora < bloqueadoHasta) {
-      return;
-    }
-    if (yaDisparado === nombre) return;
+    // Se solto el gesto que ya habia disparado: ya puede volver a hacerse.
+    if (yaDisparado && (!ganador || ganador !== yaDisparado)) yaDisparado = null;
 
-    yaDisparado = nombre;
+    if (ganador !== ultimoAnunciado) {
+      ultimoAnunciado = ganador;
+      if (ganador) registrar(`gestos: juntando votos para ${ganador}`);
+    }
+
+    if (!ganador || cuenta < VOTOS_NECESARIOS) return;
+    if (ahora < bloqueadoHasta) return;
+    if (yaDisparado === ganador) return;
+
+    yaDisparado = ganador;
     bloqueadoHasta = ahora + ENFRIAMIENTO_MS;
-    candidatoDesde = ahora;
-    registrar(`gestos: DISPARA ${nombre}`);
-    alGesto(nombre);
+    votos.length = 0;   // la ventana ya se uso; la siguiente empieza limpia
+    registrar(`gestos: DISPARA ${ganador} (${crudo?.origen || "?"} ${crudo?.categoria || ""})`);
+    alGesto(ganador);
   }
 
   return {
@@ -178,6 +239,7 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
       if (corriendo) return;
       corriendo = true;
       ultimoResumen = performance.now();
+      votos.length = 0;
       registrar("gestos: bucle arrancado");
       requestAnimationFrame(procesar);
     },
