@@ -21,6 +21,7 @@ ws.onmessage = async ({ data }) => {
   const msg = JSON.parse(data);
   if (msg.type === "answer") {
     await pc.setRemoteDescription(msg.answer);
+    await subirCalidad();
   } else if (msg.type === "ice" && msg.from !== "phone") {
     await pc.addIceCandidate(msg.candidate);
   }
@@ -37,6 +38,30 @@ pc.onconnectionstatechange = () => {
   if (s === "connected") decir("Transmitiendo a la PC");
   else if (s === "failed" || s === "disconnected") decir(`Conexion ${s}`, true);
 };
+
+// El encoder arranca con un tope de un par de Mbps, pensado para internet.
+// En una LAN sobra ancho de banda, asi que lo levantamos. maintain-resolution
+// le dice que ante un apreton sacrifique fluidez antes que nitidez, que es lo
+// que uno quiere cuando esta mirando el encuadre.
+const BITRATE_MAXIMO = 12_000_000;
+
+async function subirCalidad() {
+  const emisor = pc.getSenders().find((s) => s.track && s.track.kind === "video");
+  if (!emisor) return;
+
+  try {
+    const params = emisor.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = BITRATE_MAXIMO;
+    params.encodings[0].maxFramerate = 30;
+    delete params.encodings[0].scaleResolutionDownBy;
+    params.degradationPreference = "maintain-resolution";
+    await emisor.setParameters(params);
+  } catch (err) {
+    // Safari ignora parte de esto segun la version; no es fatal.
+    console.warn("setParameters:", err);
+  }
+}
 
 async function pedirCamara() {
   const base = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };

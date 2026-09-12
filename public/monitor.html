@@ -11,11 +11,16 @@
               background: rgba(0,0,0,.6); }
     #estado.error { background: rgba(150,20,20,.9); }
     #estado.oculto { opacity: 0; transition: opacity .6s; }
+    #stats { position: fixed; top: 0; right: 0; padding: 10px 14px;
+             background: rgba(0,0,0,.7); font: 12px ui-monospace, Consolas, monospace;
+             white-space: pre; line-height: 1.5; }
+    #stats.oculto { display: none; }
   </style>
 </head>
 <body>
   <video id="remote" autoplay playsinline></video>
   <div id="estado">Esperando al iPhone...</div>
+  <div id="stats" class="oculto"></div>
   <script type="module" src="monitor.js"></script>
 </body>
 </html>

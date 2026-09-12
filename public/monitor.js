@@ -73,6 +73,58 @@ ws.onmessage = async ({ data }) => {
   }
 };
 
+// ------------------------------------------------------------ estadisticas
+// Lo que realmente esta llegando, no lo que pedimos. Tecla S para verlo.
+const panel = document.getElementById("stats");
+let previo = null;
+
+async function medir() {
+  if (!pc || panel.classList.contains("oculto")) return;
+
+  const reporte = await pc.getStats();
+  let video = null;
+  let codec = null;
+  const codecs = new Map();
+
+  reporte.forEach((s) => {
+    if (s.type === "codec") codecs.set(s.id, s);
+    if (s.type === "inbound-rtp" && s.kind === "video") video = s;
+  });
+  if (!video) return;
+  if (video.codecId) codec = codecs.get(video.codecId);
+
+  let kbps = 0;
+  if (previo && video.timestamp > previo.timestamp) {
+    const segundos = (video.timestamp - previo.timestamp) / 1000;
+    kbps = ((video.bytesReceived - previo.bytesReceived) * 8) / segundos / 1000;
+  }
+  previo = video;
+
+  const nombreCodec = codec ? codec.mimeType.replace("video/", "") : "?";
+  const perdidos = video.packetsLost ?? 0;
+  const recibidos = video.packetsReceived ?? 0;
+  const porcentajePerdida = recibidos ? (100 * perdidos) / (recibidos + perdidos) : 0;
+
+  panel.textContent =
+    `${video.frameWidth || "?"}x${video.frameHeight || "?"}  ` +
+    `${(video.framesPerSecond ?? 0).toFixed(0)} fps
+` +
+    `${(kbps / 1000).toFixed(2)} Mbps   ${nombreCodec}
+` +
+    `perdida ${porcentajePerdida.toFixed(2)}%   jitter ${((video.jitter ?? 0) * 1000).toFixed(0)} ms
+` +
+    `descartados ${video.framesDropped ?? 0}   nack ${video.nackCount ?? 0}`;
+}
+
+setInterval(medir, 1000);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "s" || e.key === "S") {
+    panel.classList.toggle("oculto");
+    previo = null;
+  }
+});
+
 // Doble click o F para pantalla completa.
 function alternarPantallaCompleta() {
   if (document.fullscreenElement) document.exitFullscreen();
