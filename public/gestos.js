@@ -11,7 +11,7 @@
 
 import { FilesetResolver, GestureRecognizer } from "/vendor/vision_bundle.mjs";
 import { registrar } from "../shared/log.js";
-import { dedosEstirados, tamañoMano, DEDOS_PARA_PALMA } from "./geometria.js";
+import { dedosEstirados, tamañoMano, aperturaDedos, DEDOS_PARA_PALMA } from "./geometria.js";
 
 // Nombres del modelo -> nombres nuestros.
 const TRADUCCION = {
@@ -63,7 +63,13 @@ const VENTANA_EFECTIVA_MS = Math.max(...Object.values(SOSTENIDO_POR_GESTO)) + 40
 // de lo natural.
 const TAMAÑO_MINIMO_MANO = 0.10;
 
-export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato }) {
+// Y los dedos tienen que estar abiertos en abanico. Cuatro dedos estirados
+// tambien son los dedos sobre el diapason, que fue exactamente lo que estaba
+// reiniciando las tomas solo. En el mastil van juntos y paralelos; en un high
+// five, separados.
+const APERTURA_MINIMA = 0.85;
+
+export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato, estaGrabando }) {
   registrar("gestos: cargando wasm desde /vendor/wasm");
   const t0 = performance.now();
   const fileset = await FilesetResolver.forVisionTasks("/vendor/wasm");
@@ -116,6 +122,7 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
   let msInferencia = 0;
   let dedosUltimo = -1;
   let tamañoUltimo = 0;
+  let aperturaUltima = 0;
   let porGeometria = 0;
 
   // Lee un cuadro y devuelve el gesto crudo, mirando todas las manos.
@@ -140,16 +147,26 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
 
     // El clasificador no se decidio. Para la palma abierta preguntamos a la
     // geometria, que es la unica de las tres que le cuesta.
+    // Con una toma en curso, la palma abierta REINICIA: tira lo grabado. Ahi el
+    // respaldo geometrico no juega, solo vale que el clasificador se haya
+    // decidido. Grabando de cero un falso positivo no cuesta nada; grabando,
+    // cuesta la toma.
+    const grabando = estaGrabando ? estaGrabando() : false;
+
     for (const puntos of resultado.landmarks || []) {
       const n = dedosEstirados(puntos);
       const tamaño = tamañoMano(puntos);
+      const apertura = aperturaDedos(puntos);
       dedosUltimo = n;
       tamañoUltimo = tamaño;
-      if (n >= DEDOS_PARA_PALMA && tamaño >= TAMAÑO_MINIMO_MANO) {
+      aperturaUltima = apertura;
+
+      if (grabando) continue;
+      if (n >= DEDOS_PARA_PALMA && tamaño >= TAMAÑO_MINIMO_MANO && apertura >= APERTURA_MINIMA) {
         porGeometria += 1;
         return {
           nombre: "high_five",
-          categoria: `dedos:${n} tam:${tamaño.toFixed(2)}`,
+          categoria: `dedos:${n} tam:${tamaño.toFixed(2)} ab:${apertura.toFixed(2)}`,
           score: 1,
           origen: "geometria",
         };
@@ -168,7 +185,9 @@ export async function crearDetectorDeGestos({ video, alGesto, alCambiarCandidato
     registrar(
       `gestos: ${(inferencias / lapso).toFixed(1)}/s  ${msInferencia.toFixed(1)} ms  ` +
         `manos=${manosVistas}/${inferencias}  top=${mejorNombre} ${mejorScore.toFixed(2)}  ` +
-        `dedos=${dedosUltimo} tam=${tamañoUltimo.toFixed(2)} geom=${porGeometria}  ` +
+        `dedos=${dedosUltimo} tam=${tamañoUltimo.toFixed(2)} ` +
+        `ab=${aperturaUltima.toFixed(2)} geom=${porGeometria} ` +
+        `grabando=${estaGrabando ? estaGrabando() : "?"}  ` +
         `votos=${conteo.ganador || "-"} ${conteo.cuenta}/${votosNecesarios(conteo.ganador)}  ` +
         `video=${video.videoWidth}x${video.videoHeight} paused=${video.paused} ` +
         `saltados=${cuadrosSaltados}`

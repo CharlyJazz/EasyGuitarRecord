@@ -328,7 +328,12 @@ async function arrancarGestos() {
   }
   try {
     gestoTexto.textContent = "Gestos: cargando modelo...";
-    detector = await crearDetectorDeGestos({ video: remote, alGesto, alCambiarCandidato });
+    detector = await crearDetectorDeGestos({
+      video: remote,
+      alGesto,
+      alCambiarCandidato,
+      estaGrabando: () => grabador.grabando,
+    });
     detector.arrancar();
     gestoTexto.textContent = "Gestos: listos";
   } catch (err) {

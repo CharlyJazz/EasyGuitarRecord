@@ -46,6 +46,24 @@ export function tamañoMano(puntos) {
   return Math.hypot(nudillo.x - muñeca.x, nudillo.y - muñeca.y);
 }
 
+// Apertura de la mano: distancia entre la punta del indice y la del meñique,
+// relativa al tamaño de la mano.
+//
+// Es lo que separa una palma abierta de unos dedos sobre el diapason. Los dos
+// tienen cuatro dedos estirados -- por eso contar dedos no alcanza -- pero en
+// el mastil los dedos van juntos y paralelos, y en un high five van abiertos
+// en abanico.
+const PUNTA_INDICE = 8;
+const PUNTA_MEÑIQUE = 20;
+
+export function aperturaDedos(puntos) {
+  const tamaño = tamañoMano(puntos);
+  if (tamaño <= 0) return 0;
+  const a = puntos[PUNTA_INDICE];
+  const b = puntos[PUNTA_MEÑIQUE];
+  return Math.hypot(a.x - b.x, a.y - b.y) / tamaño;
+}
+
 export function esPalmaAbierta(puntos) {
   return dedosEstirados(puntos) >= DEDOS_PARA_PALMA;
 }
