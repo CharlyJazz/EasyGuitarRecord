@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>iPhone Monitor - emisor</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #fff;
+                 font: 15px -apple-system, system-ui, sans-serif; }
+    #preview { width: 100%; height: 100%; object-fit: contain; }
+    #estado { position: fixed; left: 0; right: 0; bottom: 0;
+              padding: 14px calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-bottom));
+              background: rgba(0,0,0,.65); text-align: center; }
+    #estado.error { background: rgba(150,20,20,.9); }
+  </style>
+</head>
+<body>
+  <video id="preview" autoplay playsinline muted></video>
+  <div id="estado">Tocá la pantalla para empezar</div>
+  <script type="module" src="phone.js"></script>
+</body>
+</html>

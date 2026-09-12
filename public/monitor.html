@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>iPhone Monitor</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; color: #fff;
+                 font: 14px system-ui, sans-serif; overflow: hidden; }
+    #remote { width: 100vw; height: 100vh; object-fit: contain; display: block; }
+    #estado { position: fixed; top: 0; left: 0; padding: 10px 14px;
+              background: rgba(0,0,0,.6); }
+    #estado.error { background: rgba(150,20,20,.9); }
+    #estado.oculto { opacity: 0; transition: opacity .6s; }
+  </style>
+</head>
+<body>
+  <video id="remote" autoplay playsinline></video>
+  <div id="estado">Esperando al iPhone...</div>
+  <script type="module" src="monitor.js"></script>
+</body>
+</html>
