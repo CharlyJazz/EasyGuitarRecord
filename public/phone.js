@@ -56,8 +56,24 @@ const socket = crearSocket({
     }
   },
   alCambiarEstado: (est, detalle) => {
-    if (est === "reconectando") decir(`Reconectando (intento ${detalle.intentos})...`, true);
-    else if (est === "cerrado") decir("Se corto la conexion, reintentando...", true);
+    // Igual que en el monitor: el video no pasa por el servidor, asi que la
+    // señalizacion caida no significa que se corto la transmision.
+    const videoVivo = !!pc && pc.connectionState === "connected";
+
+    if (est === "abierto") {
+      if (videoVivo) decir("Transmitiendo a la PC");
+      return;
+    }
+
+    if (est === "reconectando" || est === "cerrado") {
+      const intento = detalle?.intentos ? ` (intento ${detalle.intentos})` : "";
+      decir(
+        videoVivo
+          ? `Sin servidor${intento} — seguis transmitiendo`
+          : `Reconectando${intento}...`,
+        !videoVivo
+      );
+    }
   },
 });
 

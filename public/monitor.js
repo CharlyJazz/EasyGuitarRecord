@@ -127,8 +127,28 @@ const socket = crearSocket({
     }
   },
   alCambiarEstado: (est, detalle) => {
-    if (est === "reconectando") decir(`Reconectando al servidor (intento ${detalle.intentos})...`, true);
-    else if (est === "cerrado") decir("Se corto la conexion con el servidor, reintentando...", true);
+    // El video va peer-to-peer: una vez negociado no pasa por el servidor, y
+    // sigue andando igual aunque la señalizacion se caiga. Decir "se corto la
+    // conexion" mientras el video se ve perfecto solo asusta al pedo.
+    const videoVivo = !!pc && pc.connectionState === "connected";
+
+    if (est === "abierto") {
+      if (videoVivo) {
+        decir("Recibiendo");
+        setTimeout(() => estado.classList.add("oculto"), 2000);
+      }
+      return;
+    }
+
+    if (est === "reconectando" || est === "cerrado") {
+      const intento = detalle?.intentos ? ` (intento ${detalle.intentos})` : "";
+      decir(
+        videoVivo
+          ? `Sin servidor${intento} — el video sigue andando`
+          : `Reconectando al servidor${intento}...`,
+        !videoVivo   // rojo solo cuando de verdad perdiste algo
+      );
+    }
   },
 });
 
