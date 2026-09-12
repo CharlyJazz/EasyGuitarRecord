@@ -215,6 +215,7 @@ const grabador = crearGrabador({
     registrar(`grabacion: ${e.estado} ${e.archivo || e.detalle || ""}`);
     if (e.estado === "guardado") {
       avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`, "bueno");
+      refrescarGaleria();
     } else if (e.estado === "descartado") {
       avisar("Toma descartada", "malo");
     } else if (e.estado === "error") {
@@ -313,4 +314,86 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "r" || e.key === "R") alGesto("high_five");
   else if (e.key === "g" || e.key === "G") alGesto("pulgar_arriba");
   else if (e.key === "d" || e.key === "D") alGesto("pulgar_abajo");
+});
+
+// --------------------------------------------------------------------- galeria
+// Las tomas guardadas, a la izquierda. Un clic abre la toma en su propia
+// ventana, para poder revisarla sin cortar el monitoreo en vivo.
+const galeriaGrid = document.getElementById("galeriaGrid");
+const galeriaCuenta = document.getElementById("galeriaCuenta");
+
+function tamaño(bytes) {
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${(bytes / 1e6).toFixed(0)} MB`;
+}
+
+// El nombre ya trae la fecha: toma-2026-09-12_16-28-31.mp4
+function cuando(nombre) {
+  const m = nombre.match(/^toma-\d{4}-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/);
+  return m ? `${m[2]}/${m[1]} ${m[3]}:${m[4]}:${m[5]}` : nombre;
+}
+
+function abrirToma(nombre) {
+  // Ventana propia y no una pestaña: la idea es mirarla al lado del monitor.
+  window.open(`/grabaciones/${encodeURIComponent(nombre)}`, nombre, "width=900,height=640");
+}
+
+async function refrescarGaleria() {
+  let tomas;
+  try {
+    const respuesta = await fetch("/api/grabaciones");
+    tomas = await respuesta.json();
+  } catch (err) {
+    registrar(`galeria: no se pudo listar (${err.message})`);
+    return;
+  }
+
+  galeriaCuenta.textContent = tomas.length ? `${tomas.length}` : "";
+  galeriaGrid.textContent = "";
+
+  if (!tomas.length) {
+    const vacio = document.createElement("div");
+    vacio.id = "galeriaVacia";
+    vacio.textContent = "Todavia no hay tomas guardadas. Palma abierta para empezar una, pulgar arriba para guardarla.";
+    galeriaGrid.append(vacio);
+    return;
+  }
+
+  for (const toma of tomas) {
+    const tarjeta = document.createElement("div");
+    tarjeta.className = "toma";
+    tarjeta.title = toma.nombre;
+
+    // El fragmento #t=0.5 hace que el navegador muestre ese instante como
+    // miniatura, sin tener que generar ni guardar imagenes aparte.
+    const mini = document.createElement("video");
+    mini.src = `/grabaciones/${encodeURIComponent(toma.nombre)}#t=0.5`;
+    mini.preload = "metadata";
+    mini.muted = true;
+    mini.playsInline = true;
+
+    const pie = document.createElement("div");
+    pie.className = "pie";
+    const titulo = document.createElement("b");
+    titulo.textContent = cuando(toma.nombre);
+    const detalle = document.createElement("span");
+    detalle.textContent = tamaño(toma.bytes);
+    pie.append(titulo, detalle);
+
+    tarjeta.append(mini, pie);
+    tarjeta.addEventListener("click", () => abrirToma(toma.nombre));
+    galeriaGrid.append(tarjeta);
+  }
+}
+
+refrescarGaleria();
+// Por si alguien mueve archivos a mano en la carpeta.
+setInterval(refrescarGaleria, 15000);
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "v" || e.key === "V") document.body.classList.toggle("sinGaleria");
+});
+
+// En pantalla completa uno esta mirando el encuadre, no el archivero.
+document.addEventListener("fullscreenchange", () => {
+  document.body.classList.toggle("sinGaleria", !!document.fullscreenElement);
 });

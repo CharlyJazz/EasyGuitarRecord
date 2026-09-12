@@ -6,9 +6,40 @@
   <style>
     html, body { margin: 0; height: 100%; background: #000; color: #fff;
                  font: 14px system-ui, sans-serif; overflow: hidden; }
-    #remote { width: 100vw; height: 100vh; object-fit: contain; display: block; }
+    /* El video deja lugar a la galeria, en vez de quedar tapado por ella. */
+    #remote { width: calc(100vw - var(--galeria)); height: 100vh;
+              object-fit: contain; display: block; margin-left: var(--galeria); }
 
-    #estado { position: fixed; top: 0; left: 0; padding: 10px 14px;
+    :root { --galeria: 250px; }
+    body.sinGaleria { --galeria: 0px; }
+
+    #galeria { position: fixed; top: 0; left: 0; bottom: 0; width: 250px;
+               background: #0d0d0d; border-right: 1px solid #262626;
+               display: flex; flex-direction: column; }
+    body.sinGaleria #galeria { display: none; }
+
+    #galeriaTitulo { padding: 11px 14px; border-bottom: 1px solid #262626;
+                     font-weight: 600; display: flex; justify-content: space-between;
+                     gap: 8px; }
+    #galeriaTitulo span { color: #8a8a8a; font-weight: 400; }
+
+    #galeriaGrid { flex: 1; overflow-y: auto; padding: 10px;
+                   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+                   align-content: start; }
+
+    .toma { cursor: pointer; background: #171717; border: 1px solid #262626;
+            border-radius: 6px; overflow: hidden; }
+    .toma:hover { border-color: #6b6b6b; }
+    .toma video { width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
+                  background: #000; pointer-events: none; }
+    .toma .pie { padding: 5px 6px; font-size: 11px; line-height: 1.35; }
+    .toma .pie b { display: block; font-weight: 600; }
+    .toma .pie span { color: #8a8a8a; }
+
+    #galeriaVacia { grid-column: 1 / -1; color: #7a7a7a; padding: 10px 4px;
+                    line-height: 1.5; }
+
+    #estado { position: fixed; top: 0; left: var(--galeria); padding: 10px 14px;
               background: rgba(0,0,0,.6); }
     #estado.error { background: rgba(150,20,20,.9); }
     #estado.oculto { opacity: 0; transition: opacity .6s; }
@@ -42,7 +73,7 @@
                     background: rgba(0,0,0,.75); font-size: 22px; cursor: pointer; }
     #tocarParaVer.visible { display: flex; }
 
-    #gestos { position: fixed; left: 0; bottom: 0; padding: 10px 14px;
+    #gestos { position: fixed; left: var(--galeria); bottom: 0; padding: 10px 14px;
               background: rgba(0,0,0,.6); min-width: 230px; }
     #gestos .barra { height: 4px; margin-top: 7px; background: rgba(255,255,255,.2); }
     #gestos .relleno { height: 100%; width: 0; background: #fff; transition: width .08s linear; }
@@ -58,6 +89,11 @@
        queda en pausa mostrando negro. No hay audio que perder: el telefono
        captura con audio:false. -->
   <video id="remote" autoplay playsinline muted></video>
+
+  <aside id="galeria">
+    <div id="galeriaTitulo">Tomas <span id="galeriaCuenta"></span></div>
+    <div id="galeriaGrid"></div>
+  </aside>
 
   <div id="estado">Esperando al iPhone...</div>
   <div id="stats" class="oculto"></div>
@@ -75,7 +111,7 @@
     <b>palma abierta</b> · empezar / reiniciar toma<br>
     <b>pulgar arriba</b> · guardar<br>
     <b>pulgar abajo</b> · descartar<br>
-    <b>S</b> estadisticas · <b>F</b> pantalla completa
+    <b>S</b> estadisticas · <b>F</b> pantalla completa · <b>V</b> galeria
   </div>
 
   <script type="module" src="monitor.js"></script>
