@@ -174,12 +174,10 @@ async function medir() {
 
 setInterval(medir, 1000);
 
-window.addEventListener("keydown", (e) => {
-  if (e.key === "s" || e.key === "S") {
-    panel.classList.toggle("oculto");
-    previo = null;
-  }
-});
+function alternarEstadisticas() {
+  panel.classList.toggle("oculto");
+  previo = null;   // el calculo de bitrate necesita dos muestras seguidas
+}
 
 // Doble click o F para pantalla completa.
 function alternarPantallaCompleta() {
@@ -187,9 +185,6 @@ function alternarPantallaCompleta() {
   else document.documentElement.requestFullscreen();
 }
 remote.addEventListener("dblclick", alternarPantallaCompleta);
-window.addEventListener("keydown", (e) => {
-  if (e.key === "f" || e.key === "F") alternarPantallaCompleta();
-});
 
 // --------------------------------------------------------- gestos y grabacion
 // palma abierta -> empezar, o reiniciar la toma en curso
@@ -308,13 +303,7 @@ async function arrancarGestos() {
   }
 }
 
-// Los mismos comandos por teclado, para probar la grabacion sin tener que
-// ponerse delante de la camara.
-window.addEventListener("keydown", (e) => {
-  if (e.key === "r" || e.key === "R") alGesto("high_five");
-  else if (e.key === "g" || e.key === "G") alGesto("pulgar_arriba");
-  else if (e.key === "d" || e.key === "D") alGesto("pulgar_abajo");
-});
+
 
 // --------------------------------------------------------------------- galeria
 // Las tomas guardadas, a la izquierda. Un clic abre la toma en su propia
@@ -389,11 +378,55 @@ refrescarGaleria();
 // Por si alguien mueve archivos a mano en la carpeta.
 setInterval(refrescarGaleria, 15000);
 
-window.addEventListener("keydown", (e) => {
-  if (e.key === "v" || e.key === "V") document.body.classList.toggle("sinGaleria");
+
+
+// En pantalla completa uno esta mirando el encuadre: fuera la galeria y la
+// barra de botones, que para eso quedan los gestos y las teclas.
+document.addEventListener("fullscreenchange", () => {
+  const completa = !!document.fullscreenElement;
+  document.body.classList.toggle("sinGaleria", completa);
+  document.body.classList.toggle("sinCabecera", completa);
 });
 
-// En pantalla completa uno esta mirando el encuadre, no el archivero.
-document.addEventListener("fullscreenchange", () => {
-  document.body.classList.toggle("sinGaleria", !!document.fullscreenElement);
+// ------------------------------------------------------------------- cabecera
+// Los mismos comandos que los gestos, a mano. Sirve para probar sin ponerse
+// delante de la camara, y para cuando uno ya esta sentado frente a la PC.
+const btnGrabar = document.getElementById("btnGrabar");
+const btnGuardar = document.getElementById("btnGuardar");
+const btnDescartar = document.getElementById("btnDescartar");
+
+btnGrabar.addEventListener("click", () => alGesto("high_five"));
+btnGuardar.addEventListener("click", () => alGesto("pulgar_arriba"));
+btnDescartar.addEventListener("click", () => alGesto("pulgar_abajo"));
+
+document.getElementById("btnGaleria")
+  .addEventListener("click", () => document.body.classList.toggle("sinGaleria"));
+document.getElementById("btnStats").addEventListener("click", alternarEstadisticas);
+document.getElementById("btnPantalla").addEventListener("click", alternarPantallaCompleta);
+
+// Un boton que no se puede usar tiene que verse asi, en vez de no hacer nada
+// al tocarlo.
+function pintarBotones() {
+  const grabando = grabador.grabando;
+  const listo = hayVideo();
+
+  btnGrabar.disabled = !listo;
+  btnGrabar.textContent = grabando ? "⟲ Reiniciar" : "● Grabar";
+  btnGuardar.disabled = !grabando;
+  btnDescartar.disabled = !grabando;
+}
+setInterval(pintarBotones, 250);
+pintarBotones();
+
+window.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  const tecla = e.key.toLowerCase();
+
+  if (tecla === "r") alGesto("high_five");
+  else if (tecla === "g") alGesto("pulgar_arriba");
+  else if (tecla === "d") alGesto("pulgar_abajo");
+  else if (tecla === "s") alternarEstadisticas();
+  else if (tecla === "f") alternarPantallaCompleta();
+  else if (tecla === "v") document.body.classList.toggle("sinGaleria");
+  else if (tecla === "h") document.body.classList.toggle("sinCabecera");
 });
