@@ -8,27 +8,37 @@
 import { crearSocket } from "../shared/socket.js";
 
 const BITRATE_GRABACION = 12_000_000;
+// AAC a 192k. El techo real lo pone el Opus del WebRTC, no este numero, pero
+// de menos empeora lo que llego.
+const BITRATE_AUDIO = 192_000;
 // Un trozo por segundo: si algo se corta, se pierde a lo sumo un segundo.
 const TROZO_MS = 1000;
 
 // El primer formato soportado gana. MP4 es mas comodo para editar despues;
 // WebM es el que siempre esta.
+// Cada fila trae la variante con audio y la de solo video. El mimeType que se
+// le pasa al MediaRecorder es un contrato cerrado: si enumera codecs, graba
+// SOLO los que enumera. "video/mp4;codecs=avc1" no es "mp4 con H.264", es
+// "mp4 con H.264 y nada mas", y por eso el audio se perdia aca aunque llegara.
 const FORMATOS = [
-  { mimeType: "video/mp4;codecs=avc1", extension: "mp4" },
-  { mimeType: "video/webm;codecs=vp9", extension: "webm" },
-  { mimeType: "video/webm;codecs=vp8", extension: "webm" },
-  { mimeType: "video/webm", extension: "webm" },
+  { conAudio: "video/mp4;codecs=avc1,mp4a.40.2", soloVideo: "video/mp4;codecs=avc1", extension: "mp4" },
+  { conAudio: "video/webm;codecs=vp9,opus", soloVideo: "video/webm;codecs=vp9", extension: "webm" },
+  { conAudio: "video/webm;codecs=vp8,opus", soloVideo: "video/webm;codecs=vp8", extension: "webm" },
+  { conAudio: "video/webm", soloVideo: "video/webm", extension: "webm" },
 ];
 
-function elegirFormato() {
+// Pedir un codec de audio cuando el stream no trae microfono queda librado a
+// la buena voluntad del navegador, asi que se pregunta antes.
+function elegirFormato(conAudio) {
   for (const f of FORMATOS) {
-    if (MediaRecorder.isTypeSupported(f.mimeType)) return f;
+    const mimeType = conAudio ? f.conAudio : f.soloVideo;
+    if (MediaRecorder.isTypeSupported(mimeType)) return { mimeType, extension: f.extension };
   }
   return null;
 }
 
 export function crearGrabador({ alEstado }) {
-  const formato = elegirFormato();
+  let formato = elegirFormato(false);
   let grabador = null;
   let arranque = 0;
 
@@ -36,10 +46,16 @@ export function crearGrabador({ alEstado }) {
     ruta: "/grabacion",
     alMensaje: ({ data }) => {
       const msg = JSON.parse(data);
-      if (msg.type === "conservado") {
-        alEstado({ estado: "conservado", archivo: msg.archivo, bytes: msg.bytes });
-      } else if (msg.type === "guardado") {
-        alEstado({ estado: "guardado", archivo: msg.archivo, bytes: msg.bytes });
+      if (msg.type === "guardado") {
+        alEstado({
+          estado: "guardado",
+          archivo: msg.archivo,
+          bytes: msg.bytes,
+          metodo: msg.metodo,
+          detalle: msg.detalle,
+        });
+      } else if (msg.type === "procesando") {
+        alEstado({ estado: "procesando" });
       } else if (msg.type === "descartado") {
         alEstado({ estado: "descartado" });
       } else if (msg.type === "grabando") {
@@ -73,6 +89,10 @@ export function crearGrabador({ alEstado }) {
     },
 
     iniciar(stream) {
+      // El formato se decide aca y no al cargar el modulo: depende de si el
+      // telefono mando microfono en esta sesion.
+      formato = elegirFormato(stream.getAudioTracks().length > 0) || formato;
+
       if (!formato) {
         alEstado({ estado: "error", detalle: "el navegador no puede grabar video" });
         return false;
@@ -88,6 +108,7 @@ export function crearGrabador({ alEstado }) {
       grabador = new MediaRecorder(stream, {
         mimeType: formato.mimeType,
         videoBitsPerSecond: BITRATE_GRABACION,
+        audioBitsPerSecond: BITRATE_AUDIO,
       });
 
       grabador.ondataavailable = (e) => {

@@ -53,7 +53,9 @@ vive en la PC, asi que gesto y grabacion quedan del mismo lado.
 ## Grabacion
 
 Las tomas se guardan en `grabaciones/`, **en la PC**, como
-`toma-2026-09-12_16-04-31.webm` (o `.mp4` si el navegador lo soporta).
+`toma-2026-09-12_16-04-31.mp4`: H.264 en un MP4 con el indice adelante, que es
+lo que DaVinci Resolve y cualquier editor esperan (ver mas abajo por que hace
+falta convertirlo).
 
 Los trozos del `MediaRecorder` salen por WebSocket a medida que se generan y el
 servidor los escribe a disco en un archivo `.parcial-*`, que se renombra al
@@ -62,6 +64,74 @@ toma de varios minutos a 12 Mbps son cientos de MB. Si la pestaña se cierra en
 medio de una toma, el parcial se borra solo.
 
 `GET /api/grabaciones` lista lo que hay guardado.
+
+### Por que la toma se remuxea al cerrarse
+
+El `MediaRecorder` con `video/mp4;codecs=avc1` **no escribe un MP4 normal**:
+escribe un **MP4 fragmentado** (fMP4). No tiene alternativa, porque va emitiendo
+el archivo de a trozos sin saber cuanto va a durar la toma.
+
+```
+fragmentado:  ftyp | moov (vacio, duration=0) | moof+mdat | moof+mdat | ...
+normal:       ftyp | moov (indice completo)   | mdat
+```
+
+En el fragmentado el `moov` no trae la tabla de muestras (`stbl`: stts/stsz/
+stco): **no hay indice**, y la duracion real esta repartida en cada `moof`.
+Medido sobre una toma cruda, el `moov` declara `duration=0` y `ffprobe` devuelve
+`nb_frames=N/A`. Un reproductor de streaming lo tolera; **DaVinci Resolve no
+importa fMP4** y lo reporta como archivo dañado.
+
+Por eso, al guardar, `remux.js` pasa el parcial por ffmpeg:
+
+```bash
+ffmpeg -i parcial.mp4 -c copy -movflags +faststart toma.mp4
+```
+
+Es un **remux, no una recodificacion**: se reescriben las cajas con el indice
+completo adelante y se copian los mismos paquetes H.264 tal cual. No se pierde
+un solo bit de calidad, y tarda decimas de segundo (medido: 0,14 s).
+
+Si el navegador cayo al respaldo WebM, ahi si hay que recodificar a H.264:
+Resolve tampoco lee WebM y VP9 no entra en un MP4 copiando.
+
+**Hace falta ffmpeg en el PATH** (`winget install Gyan.FFmpeg`, o la variable
+`FFMPEG` apuntando al binario). Si no esta, el servidor avisa al arrancar y en
+cada toma, y guarda el crudo sin convertir antes que perderla.
+
+## Pasar archivos entre el telefono y la PC
+
+`https://<IP-DE-LA-PC>:3000/transferir.html` (tambien desde el boton
+**Transferencias** del monitor). Es una carpeta compartida, `transferencias/`,
+y **va para los dos lados**: lo que sube el telefono aparece ahi, y lo que se
+deja ahi desde la PC aparece en la lista del telefono para bajar. En la PC
+tambien se pueden arrastrar archivos a la pagina.
+
+Reemplaza el viaje por WeTransfer, que es lento no por el archivo sino por el
+camino: sube el video entero a un servidor en internet y despues lo baja. Aca
+los bytes van directo de un aparato al otro por la red local, **sin recomprimir
+nada** (medido: mismo SHA-256 en las dos puntas).
+
+**Lo que si puede tocar la calidad pasa antes de que el archivo salga del
+telefono**: en *Ajustes -> Fotos -> Transferir a Mac o PC*, la opcion
+"Automatico" convierte los HEVC a H.264 al exportarlos. Hay que ponerlo en
+**"Conservar originales"**; desde el servidor no hay forma de impedirlo.
+
+Detalles que importan:
+
+- El archivo viaja como **cuerpo crudo del POST**, con el nombre en un header, y
+  no como `multipart/form-data`: asi se puede mandar a disco a medida que llega
+  y un video de varios GB nunca entra en memoria.
+- Se usa `XMLHttpRequest` y no `fetch` porque **fetch no informa el progreso de
+  subida**, y sin barra un video grande parece colgado.
+- `server.requestTimeout = 0`: Node corta solo cualquier pedido que pase de 5
+  minutos, y una subida grande los pasa de largo.
+- Se escribe en `.subiendo-*` y se renombra al terminar, para que una subida
+  cortada no deje un archivo truncado con pinta de sano.
+- La pagina pide **wake lock** mientras sube: si la pantalla del iPhone se
+  bloquea, iOS suspende Safari y corta la subida.
+- El nombre que manda el telefono nunca se usa tal cual (`../../` en el nombre
+  dejaria escribir fuera de la carpeta).
 
 ## Por que HTTPS y no HTTP
 
@@ -153,8 +223,12 @@ public/phone.html|js       pagina del iPhone (emisor)
 public/monitor.html|js     pagina de la PC (receptor, gestos, grabacion)
 public/gestos.js           MediaPipe Gesture Recognizer
 public/grabacion.js        MediaRecorder -> WebSocket -> disco
+public/transferir.*        pasar archivos entre el telefono y la PC
+remux.js                   cierra la toma como MP4 editable (ffmpeg)
+transferencias.js          carpeta compartida (subida/bajada por la LAN)
 modelos/                   modelo .task (gitignoreado)
 grabaciones/               las tomas (gitignoreado)
+transferencias/            la carpeta compartida (gitignoreada)
 ```
 
 El servidor sirve `/shared`, `/vendor` (MediaPipe desde `node_modules`, no

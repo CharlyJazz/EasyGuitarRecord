@@ -30,7 +30,21 @@
     #cabecera button.principal:hover:not(:disabled) { background: #cc2a2a; }
     #cabecera button.guardar { background: #1a6b38; border-color: #2a8a4c; }
     #cabecera button.guardar:hover:not(:disabled) { background: #218244; }
+    #cabecera .enlace { color: #e9e9e9; background: #1e1e1e; border: 1px solid #343434;
+                       border-radius: 6px; padding: 7px 13px; text-decoration: none; }
+    #cabecera .enlace:hover { background: #2b2b2b; border-color: #555; }
     #cabecera .separador { flex: 1; }
+
+    /* Interruptor de gestos. Es una pastilla con luz y no un boton comun
+       porque lo que importa no es poder tocarlo, es saber de un vistazo si el
+       modelo esta corriendo: come CPU y dispara acciones solo. */
+    #cabecera #btnGestos { display: inline-flex; align-items: center; gap: 8px;
+                           border-radius: 999px; padding: 7px 15px; }
+    #cabecera #btnGestos::before { content: ""; width: 9px; height: 9px;
+                                   border-radius: 50%; background: #5a5a5a; }
+    #cabecera #btnGestos.encendido { background: #14401f; border-color: #2a8a4c; }
+    #cabecera #btnGestos.encendido::before { background: #35d06a;
+                                             box-shadow: 0 0 7px #35d06a; }
     #cabecera .atajo { color: #7a7a7a; font-size: 12px; }
 
     #galeria { position: fixed; top: 0; left: 0; bottom: 0; width: 250px;
@@ -77,8 +91,9 @@
     #stats.oculto { display: none; }
 
     /* Grabando: se tiene que ver de un vistazo desde lejos, con la guitarra
-       en la mano y sin poder acercarse a leer. */
-    #rec { position: fixed; top: calc(var(--cabecera) + 14px); left: 50%; transform: translateX(-50%);
+       en la mano y sin poder acercarse a leer. Se centra sobre el video,
+       no sobre la ventana: la galeria le come 250px por la izquierda. */
+    #rec { position: fixed; top: calc(var(--cabecera) + 14px); left: calc(50% + var(--galeria) / 2); transform: translateX(-50%);
            display: none; align-items: center; gap: 10px;
            padding: 8px 18px; border-radius: 999px;
            background: rgba(200,30,30,.92); font-size: 17px; font-weight: 600; }
@@ -87,7 +102,7 @@
              animation: latir 1s infinite; }
     @keyframes latir { 50% { opacity: .15; } }
 
-    #aviso { position: fixed; top: calc(var(--cabecera) + 60px); left: 50%; transform: translateX(-50%);
+    #aviso { position: fixed; top: calc(var(--cabecera) + 60px); left: calc(50% + var(--galeria) / 2); transform: translateX(-50%);
              padding: 8px 18px; border-radius: 8px; background: rgba(0,0,0,.8);
              font-size: 16px; opacity: 0; transition: opacity .3s; }
     #aviso.visible { opacity: 1; }
@@ -100,6 +115,7 @@
                     background: rgba(0,0,0,.75); font-size: 22px; cursor: pointer; }
     #tocarParaVer.visible { display: flex; }
 
+    body.sinGestos #gestos { display: none; }
     #gestos { position: fixed; left: var(--galeria); bottom: 0; padding: 10px 14px;
               background: rgba(0,0,0,.6); min-width: 230px; }
     #gestos .barra { height: 4px; margin-top: 7px; background: rgba(255,255,255,.2); }
@@ -123,10 +139,12 @@
   </aside>
 
   <header id="cabecera">
-    <button id="btnGrabar" class="principal" title="Palma abierta">● Grabar</button>
-    <button id="btnGuardar" class="guardar" title="Pulgar arriba">✓ Guardar</button>
-    <button id="btnDescartar" title="Pulgar abajo">✕ Descartar</button>
+    <button id="btnGuardar" class="guardar" title="Pulgar arriba">✓ Guardar y seguir</button>
+    <button id="btnDescartar" title="Pulgar abajo">✕ Descartar y seguir</button>
+    <button id="btnPausa" title="Tecla P">■ Parar</button>
     <span class="separador"></span>
+    <a class="enlace" href="transferir.html" title="Pasar archivos entre el telefono y la PC">Transferencias</a>
+    <button id="btnGestos" title="Prender o apagar el reconocimiento de gestos">Gestos</button>
     <button id="btnGaleria" title="Tecla V">Galeria</button>
     <button id="btnStats" title="Tecla S">Estadisticas</button>
     <button id="btnPantalla" title="Tecla F">Pantalla completa</button>
@@ -145,10 +163,10 @@
   </div>
 
   <div id="ayuda">
-    <b>palma abierta</b> · empezar / reiniciar toma<br>
-    <b>pulgar arriba</b> · guardar<br>
-    <b>pulgar abajo</b> · descartar<br>
-    <b>R</b> grabar · <b>G</b> guardar · <b>D</b> descartar<br>
+    Graba solo mientras haya video<br>
+    <b>pulgar arriba</b> · guarda y sigue<br>
+    <b>pulgar abajo</b> · descarta y sigue<br>
+    <b>G</b> guardar · <b>D</b> descartar · <b>P</b> parar<br>
     <b>S</b> estadisticas · <b>F</b> pantalla · <b>V</b> galeria · <b>H</b> barra
   </div>
 

@@ -6,10 +6,13 @@ import os from "os";
 import path from "path";
 import selfsigned from "selfsigned";
 import { fileURLToPath } from "url";
+import { finalizarToma, hayFfmpeg } from "./remux.js";
+import { montarTransferencias } from "./transferencias.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3000;
 const GRABACIONES = path.join(__dirname, "grabaciones");
+const TRANSFERENCIAS = path.join(__dirname, "transferencias");
 
 // ---------------------------------------------------------------- certificado
 // Safari en iOS solo entrega getUserMedia en un "secure context": https, o
@@ -139,9 +142,16 @@ app.get("/api/grabaciones", (req, res) => {
   res.json(archivos);
 });
 
+montarTransferencias(app, { carpeta: TRANSFERENCIAS, log });
+
 const ips = ipsLocales();
 fs.mkdirSync(GRABACIONES, { recursive: true });
 const server = createServer(cargarCertificado(ips), app);
+// Node corta solo cualquier pedido que pase de 5 minutos (requestTimeout).
+// Subir un video de varios GB los pasa de largo y la transferencia se caia
+// sin explicacion; aca no hay clientes hostiles, es la LAN de casa.
+server.requestTimeout = 0;
+
 const wss = new WebSocketServer({ server });
 
 function enviar(ws, objeto) {
@@ -279,31 +289,24 @@ function manejarGrabacion(ws, origen) {
       const total = bytes;
       parcial = null;
       escritor = null;
-      const destino = path.join(GRABACIONES, `toma-${marcaDeTiempo()}${path.extname(archivo)}`);
-      ese.end(() => {
-        fs.renameSync(archivo, destino);
-        log(origen, `guardado: ${path.basename(destino)} (${(total / 1e6).toFixed(1)} MB)`);
-        enviar(ws, { type: "guardado", archivo: path.basename(destino), bytes: total });
-      });
-      return;
-    }
-
-    // Reiniciar una toma no puede significar destruirla. Se va a la papelera,
-    // igual que un borrado desde la galeria: si el reinicio fue un accidente,
-    // los minutos que ya habias grabado siguen ahi.
-    if (msg.type === "conservar") {
-      if (!parcial || !escritor) return;
-      const archivo = parcial;
-      const ese = escritor;
-      const total = bytes;
-      parcial = null;
-      escritor = null;
-      fs.mkdirSync(PAPELERA, { recursive: true });
-      const destino = path.join(PAPELERA, `reiniciada-${marcaDeTiempo()}${path.extname(archivo)}`);
-      ese.end(() => {
-        fs.renameSync(archivo, destino);
-        log(origen, `reiniciada -> papelera/${path.basename(destino)} (${(total / 1e6).toFixed(1)} MB)`);
-        enviar(ws, { type: "conservado", archivo: path.basename(destino), bytes: total });
+      // Sin extension: la pone finalizarToma(), que siempre deja un .mp4 salvo
+      // que ffmpeg falte o falle.
+      const destinoBase = path.join(GRABACIONES, `toma-${marcaDeTiempo()}`);
+      ese.end(async () => {
+        // El remux de una toma larga tarda un momento; que el monitor no crea
+        // que se colgo.
+        enviar(ws, { type: "procesando" });
+        const r = await finalizarToma(archivo, destinoBase);
+        const nombre = path.basename(r.destino);
+        log(origen, `guardado: ${nombre} (${(total / 1e6).toFixed(1)} MB, ${r.metodo})` +
+          (r.detalle ? ` -- ${r.detalle}` : ""));
+        enviar(ws, {
+          type: "guardado",
+          archivo: nombre,
+          bytes: total,
+          metodo: r.metodo,
+          detalle: r.detalle,
+        });
       });
       return;
     }
@@ -358,6 +361,17 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`\nEn la PC (Chrome/Edge):  https://localhost:${PORT}/monitor.html`);
   for (const ip of ips) {
     console.log(`En el iPhone (Safari):   https://${ip}:${PORT}/phone.html`);
+    console.log(`Pasar archivos:          https://${ip}:${PORT}/transferir.html`);
   }
-  console.log(`\nLas tomas se guardan en: ${GRABACIONES}\n`);
+  console.log(`\nLas tomas se guardan en:  ${GRABACIONES}`);
+  console.log(`Los archivos que se pasan: ${TRANSFERENCIAS}`);
+  if (!hayFfmpeg()) {
+    console.log(
+      "\n  AVISO: no se encontro ffmpeg en el PATH.\n" +
+      "  Las tomas van a quedar en MP4 fragmentado, que DaVinci y la mayoria de\n" +
+      "  los editores rechazan. Instalalo (winget install Gyan.FFmpeg) o apunta\n" +
+      "  la variable FFMPEG al binario."
+    );
+  }
+  console.log("");
 });

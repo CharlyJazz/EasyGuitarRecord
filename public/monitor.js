@@ -69,7 +69,8 @@ function nuevaConexion() {
     reproducir("llego el track");
     decir("Recibiendo");
     setTimeout(() => estado.classList.add("oculto"), 2000);
-    arrancarGestos();
+    if (gestosEncendidos) arrancarGestos();
+    arrancarSiHaceFalta();
   };
 
   pc.onicecandidate = (e) => {
@@ -207,9 +208,16 @@ function alternarPantallaCompleta() {
 remote.addEventListener("dblclick", alternarPantallaCompleta);
 
 // --------------------------------------------------------- gestos y grabacion
-// palma abierta -> empezar, o reiniciar la toma en curso
-// pulgar arriba -> guardar
-// pulgar abajo  -> descartar
+// La grabacion corre sola mientras haya video. Cada pulgar cierra la toma en
+// curso y arranca la siguiente, sin que haya que decir "empeza" en ningun
+// momento:
+//
+//   pulgar arriba -> guarda la toma y sigue grabando la proxima
+//   pulgar abajo  -> la tira y empieza de nuevo
+//
+// Hubo una version con palma abierta para reiniciar y no sobrevivio: unos
+// dedos sobre el diapason son cuatro dedos estirados, igual que una palma
+// abierta, y reiniciaba las tomas solo.
 const gestoTexto = document.getElementById("gestoTexto");
 const gestoBarra = document.getElementById("gestoBarra");
 const rec = document.getElementById("rec");
@@ -217,7 +225,6 @@ const reloj = document.getElementById("reloj");
 const aviso = document.getElementById("aviso");
 
 const ETIQUETA_GESTO = {
-  high_five: "palma abierta",
   pulgar_arriba: "pulgar arriba",
   pulgar_abajo: "pulgar abajo",
 };
@@ -228,11 +235,17 @@ let ocupado = false;   // evita que dos gestos seguidos se pisen
 const grabador = crearGrabador({
   alEstado: (e) => {
     registrar(`grabacion: ${e.estado} ${e.archivo || e.detalle || ""}`);
-    if (e.estado === "conservado") {
-      registrar(`toma reiniciada conservada como ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`);
-    } else if (e.estado === "guardado") {
-      avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`, "bueno");
+    if (e.estado === "guardado") {
+      // metodo "crudo" = ffmpeg no estaba o fallo, y el archivo quedo
+      // fragmentado: se abre en un reproductor pero un editor lo rechaza.
+      if (e.metodo === "crudo") {
+        avisar(`Guardado SIN convertir: ${e.archivo} -- ${e.detalle}`, "malo");
+      } else {
+        avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`, "bueno");
+      }
       refrescarGaleria();
+    } else if (e.estado === "procesando") {
+      avisar("Cerrando la toma...");
     } else if (e.estado === "descartado") {
       avisar("Toma descartada", "malo");
     } else if (e.estado === "error") {
@@ -261,58 +274,52 @@ function hayVideo() {
   return remote.srcObject && remote.srcObject.getVideoTracks().some((t) => t.readyState === "live");
 }
 
-// Un reinicio a los dos segundos de empezar no es un reinicio, es el mismo
-// gesto contado dos veces (o el boton y el gesto pisandose).
-const EDAD_MINIMA_PARA_REINICIAR_S = 2;
+// Se puede parar del todo desde la barra; mientras tanto, si hay video hay
+// grabacion.
+let enPausa = false;
 
-async function empezarToma(reinicio) {
-  if (!hayVideo()) {
-    avisar("No hay video del telefono todavia", "malo");
-    return;
-  }
+function arrancarSiHaceFalta() {
+  if (enPausa || grabador.grabando || !hayVideo()) return;
+  grabador.iniciar(remote.srcObject);
+}
 
-  if (grabador.grabando) {
-    if (grabador.segundos < EDAD_MINIMA_PARA_REINICIAR_S) {
-      registrar(`reinicio ignorado: la toma tiene ${grabador.segundos.toFixed(1)} s`);
-      return;
-    }
-    // A la papelera, no a la basura: si el reinicio fue sin querer, lo grabado
-    // hasta aca se recupera.
-    await grabador.terminar("conservar");
-  }
-
-  if (grabador.iniciar(remote.srcObject)) {
-    avisar(reinicio ? "Toma reiniciada (la anterior va a la papelera)" : "Grabando", "");
-  }
+// Cerrar una toma y abrir la siguiente en el mismo paso: cualquier hueco entre
+// las dos es material perdido, justo cuando uno acaba de decidir seguir.
+async function cerrarYSeguir(accion) {
+  if (grabador.grabando) await grabador.terminar(accion);
+  arrancarSiHaceFalta();
 }
 
 async function alGesto(nombre) {
   registrar(`accion ${nombre}: grabando=${grabador.grabando} ocupado=${ocupado} ` +
-    `video=${hayVideo()} formato=${grabador.formato?.mimeType || "ninguno"}`);
+    `video=${hayVideo()} pausa=${enPausa}`);
   if (ocupado) return;
   ocupado = true;
   try {
-    if (nombre === "high_five") {
-      await empezarToma(grabador.grabando);
-    } else if (nombre === "pulgar_arriba") {
-      if (!grabador.grabando) avisar("No hay ninguna toma grabando", "malo");
-      else await grabador.terminar("guardar");
-    } else if (nombre === "pulgar_abajo") {
-      if (!grabador.grabando) avisar("No hay ninguna toma grabando", "malo");
-      else await grabador.terminar("descartar");
+    if (!hayVideo()) {
+      avisar("No hay video del telefono todavia", "malo");
+      return;
     }
+    if (nombre === "pulgar_arriba") await cerrarYSeguir("guardar");
+    else if (nombre === "pulgar_abajo") await cerrarYSeguir("descartar");
   } finally {
     ocupado = false;
   }
 }
 
+// Con video y sin pausa, siempre tiene que haber una toma corriendo. Este
+// reintento cubre el arranque, la vuelta de una reconexion y cualquier corte
+// del grabador.
+setInterval(arrancarSiHaceFalta, 1000);
+
 function alCambiarCandidato(nombre, avance, crudo) {
   gestoBarra.style.width = `${Math.round(100 * avance)}%`;
   // El crudo va siempre a la vista: si el modelo ve la mano pero la llama
-  // distinto, o si el que la reconocio fue el respaldo geometrico, se nota sin
-  // abrir la consola.
+  // distinto, se nota sin abrir la consola. Antes esto decia ademas "via
+  // modelo/geometria", pero al sacar el respaldo geometrico quedo una sola
+  // fuente y el campo dejo de existir.
   const detalle = crudo
-    ? `${crudo.categoria} ${crudo.score.toFixed(2)} via ${crudo.origen}`
+    ? `${crudo.categoria} ${crudo.score.toFixed(2)}`
     : "sin gesto";
   gestoTexto.textContent = nombre
     ? `${ETIQUETA_GESTO[nombre]}  ${Math.round(100 * avance)}%  (${detalle})`
@@ -320,6 +327,7 @@ function alCambiarCandidato(nombre, avance, crudo) {
 }
 
 async function arrancarGestos() {
+  if (!gestosEncendidos) return;
   registrar(`arrancarGestos: detector=${detector ? "ya existe" : "hay que crearlo"} ` +
     `video=${remote.videoWidth}x${remote.videoHeight} ready=${remote.readyState}`);
   if (detector) {
@@ -328,12 +336,7 @@ async function arrancarGestos() {
   }
   try {
     gestoTexto.textContent = "Gestos: cargando modelo...";
-    detector = await crearDetectorDeGestos({
-      video: remote,
-      alGesto,
-      alCambiarCandidato,
-      estaGrabando: () => grabador.grabando,
-    });
+    detector = await crearDetectorDeGestos({ video: remote, alGesto, alCambiarCandidato });
     detector.arrancar();
     gestoTexto.textContent = "Gestos: listos";
   } catch (err) {
@@ -344,6 +347,49 @@ async function arrancarGestos() {
   }
 }
 
+
+
+// El modelo de MediaPipe come CPU y no siempre hace falta: grabando con el
+// teclado, o probando encuadres, molesta mas de lo que ayuda. La preferencia
+// sobrevive al reload, porque si lo apagaste fue por algo y volver a
+// encenderlo solo seria pelearse con la pagina.
+const CLAVE_GESTOS = "iphone-monitor:gestos";
+const btnGestos = document.getElementById("btnGestos");
+let gestosEncendidos = leerPreferenciaGestos();
+
+function leerPreferenciaGestos() {
+  // Safari en modo privado tira al tocar localStorage; que eso no se lleve
+  // puesta la pagina entera.
+  try { return localStorage.getItem(CLAVE_GESTOS) !== "no"; } catch { return true; }
+}
+
+function pintarInterruptorGestos() {
+  btnGestos.classList.toggle("encendido", gestosEncendidos);
+  btnGestos.setAttribute("aria-pressed", String(gestosEncendidos));
+  document.body.classList.toggle("sinGestos", !gestosEncendidos);
+}
+
+async function alternarGestos() {
+  gestosEncendidos = !gestosEncendidos;
+  try { localStorage.setItem(CLAVE_GESTOS, gestosEncendidos ? "si" : "no"); } catch {}
+  pintarInterruptorGestos();
+  registrar(`gestos: interruptor ${gestosEncendidos ? "encendido" : "apagado"}`);
+
+  if (!gestosEncendidos) {
+    // parar() solo corta el bucle; el detector queda vivo para que volver a
+    // encenderlo no vuelva a bajar el modelo.
+    detector?.parar();
+    gestoTexto.textContent = "Gestos: apagados";
+    gestoBarra.style.width = "0%";
+    return;
+  }
+  if (hayVideo()) await arrancarGestos();
+  else gestoTexto.textContent = "Gestos: esperando video";
+}
+
+btnGestos.addEventListener("click", alternarGestos);
+pintarInterruptorGestos();
+if (!gestosEncendidos) gestoTexto.textContent = "Gestos: apagados";
 
 
 // --------------------------------------------------------------------- galeria
@@ -367,11 +413,10 @@ function abrirToma(nombre) {
   window.open(`/grabaciones/${encodeURIComponent(nombre)}`, nombre, "width=900,height=640");
 }
 
+// Sin confirmacion a proposito: esto no borra, mueve a grabaciones/.papelera.
+// Descartando tomas de a diez, un dialogo por cada una molesta mas de lo que
+// protege, y lo que protege de verdad es que el archivo siga estando.
 async function borrarToma(nombre) {
-  if (!confirm(`¿Mover a la papelera?
-
-${nombre}`)) return;
-
   try {
     const respuesta = await fetch(`/api/grabaciones/${encodeURIComponent(nombre)}`, {
       method: "DELETE",
@@ -476,13 +521,26 @@ document.addEventListener("fullscreenchange", () => {
 // ------------------------------------------------------------------- cabecera
 // Los mismos comandos que los gestos, a mano. Sirve para probar sin ponerse
 // delante de la camara, y para cuando uno ya esta sentado frente a la PC.
-const btnGrabar = document.getElementById("btnGrabar");
+const btnPausa = document.getElementById("btnPausa");
 const btnGuardar = document.getElementById("btnGuardar");
 const btnDescartar = document.getElementById("btnDescartar");
 
-btnGrabar.addEventListener("click", () => alGesto("high_five"));
 btnGuardar.addEventListener("click", () => alGesto("pulgar_arriba"));
 btnDescartar.addEventListener("click", () => alGesto("pulgar_abajo"));
+btnPausa.addEventListener("click", alternarPausa);
+
+async function alternarPausa() {
+  enPausa = !enPausa;
+  if (enPausa) {
+    // Parar no es guardar ni tirar: la toma en curso se descarta, que es lo
+    // unico honesto cuando uno corta sin decidir.
+    if (grabador.grabando) await grabador.terminar("descartar");
+    avisar("Grabacion detenida", "");
+  } else {
+    arrancarSiHaceFalta();
+  }
+  registrar(`pausa: ${enPausa}`);
+}
 
 document.getElementById("btnGaleria")
   .addEventListener("click", () => document.body.classList.toggle("sinGaleria"));
@@ -493,10 +551,10 @@ document.getElementById("btnPantalla").addEventListener("click", alternarPantall
 // al tocarlo.
 function pintarBotones() {
   const grabando = grabador.grabando;
-  const listo = hayVideo();
 
-  btnGrabar.disabled = !listo;
-  btnGrabar.textContent = grabando ? "⟲ Reiniciar" : "● Grabar";
+  btnPausa.textContent = enPausa ? "● Reanudar" : "■ Parar";
+  btnPausa.classList.toggle("principal", enPausa);
+  btnPausa.disabled = !hayVideo() && !enPausa;
   btnGuardar.disabled = !grabando;
   btnDescartar.disabled = !grabando;
 }
@@ -507,7 +565,7 @@ window.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
   const tecla = e.key.toLowerCase();
 
-  if (tecla === "r") alGesto("high_five");
+  if (tecla === "p") alternarPausa();
   else if (tecla === "g") alGesto("pulgar_arriba");
   else if (tecla === "d") alGesto("pulgar_abajo");
   else if (tecla === "s") alternarEstadisticas();

@@ -150,22 +150,50 @@ async function subirCalidad() {
 }
 
 // ------------------------------------------------------------------- camara
+
+// iOS, si no le decis lo contrario, mete la cadena de procesado de VOZ:
+// cancelacion de eco, supresion de ruido y control automatico de ganancia.
+// Para hablar esta bien; para una guitarra es destructivo, porque le come los
+// transitorios del ataque y le bombea el volumen entre frase y frase. Estos
+// tres false son lo que separa "se escucha" de "sirve para publicar".
+const AUDIO_MUSICA = {
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  sampleRate: { ideal: 48000 },
+  channelCount: { ideal: 2 },
+};
+
 async function pedirCamara() {
   const base = { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } };
+
+  async function pedir(audio) {
+    try {
+      // exact fuerza la trasera; si el iPhone no puede combinarla con esas
+      // resoluciones tira OverconstrainedError, y ahi aflojamos a ideal.
+      return await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: "environment" }, ...base },
+        audio,
+      });
+    } catch (err) {
+      if (err.name !== "OverconstrainedError") throw err;
+      decir("Reintentando sin forzar resolucion...");
+      return await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio,
+      });
+    }
+  }
+
   try {
-    // exact fuerza la trasera; si el iPhone no puede combinarla con esas
-    // resoluciones tira OverconstrainedError, y ahi aflojamos a ideal.
-    return await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { exact: "environment" }, ...base },
-      audio: false,
-    });
+    return await pedir(AUDIO_MUSICA);
   } catch (err) {
-    if (err.name !== "OverconstrainedError") throw err;
-    decir("Reintentando sin forzar resolucion...");
-    return await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
-      audio: false,
-    });
+    // getUserMedia es todo o nada: si negas el microfono, tambien perdes la
+    // camara. Una toma muda es mucho mejor que ninguna toma, asi que se
+    // reintenta sin audio en vez de dejarlo morir.
+    if (err.name !== "NotAllowedError" && err.name !== "NotFoundError") throw err;
+    decir(`Sin microfono (${err.name}): la toma va a salir muda.`, true);
+    return await pedir(false);
   }
 }
 
@@ -200,6 +228,11 @@ async function start() {
     // dispara ningun evento de conexion: hay que mirarla aparte.
     for (const track of stream.getTracks()) {
       track.addEventListener("ended", () => {
+        // Que se muera el microfono no es razon para tirar abajo el video.
+        if (track.kind !== "video") {
+          decir("Se corto el microfono: sigue el video, pero mudo.", true);
+          return;
+        }
         decir("La camara se cerro. Tocá para volver a pedirla.", true);
         stream = null;
         armar();
