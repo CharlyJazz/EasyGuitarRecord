@@ -65,6 +65,9 @@ function nuevaConexion() {
   pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
   pc.ontrack = (e) => {
+    // Video y audio llegan en el mismo stream, cada uno con su ontrack.
+    // Reasignar el mismo stream recarga el <video> y corta el play() anterior.
+    if (remote.srcObject === e.streams[0]) return;
     remote.srcObject = e.streams[0];
     reproducir("llego el track");
     decir("Recibiendo");
@@ -158,8 +161,38 @@ const socket = crearSocket({
 const panel = document.getElementById("stats");
 let previo = null;
 
+// Ademas de pintar el panel, esto vigila si el video ya se estabilizo. WebRTC
+// arranca bajo y sube el bitrate de a poco: grabar durante esa rampa es lo que
+// metia los huecos que despues descuadran la toma en el editor. Medido sobre la
+// toma del 18/09: hueco de 2.500 ms en el segundo 3, cero cuadros en el 4, y
+// pasado el segundo 10 la captura queda clavada en 30 fps.
+//
+// Por eso la muestra corre siempre, aunque el panel este escondido: si solo
+// midiera con el panel abierto, el arranque de la grabacion dependeria de si
+// alguien aprieta S.
+const MUESTRAS_ESTABLE = 3;      // segundos seguidos en verde que hacen falta
+const FPS_MINIMO = 24;         // el tramo estable medido nunca bajo de 28; la rampa nunca paso de 16
+const ESPERA_MAXIMA_MS = 10000;  // techo: antes perder calidad que perder la toma
+
+let historialFps = [];
+let esperandoDesde = 0;
+let pcMedido = null;
+
+function videoEstable() {
+  return historialFps.length >= MUESTRAS_ESTABLE && historialFps.every((f) => f >= FPS_MINIMO);
+}
+
 async function medir() {
-  if (!pc || panel.classList.contains("oculto")) return;
+  if (!pc) return;
+
+  // Conexion nueva: el historial de la anterior no dice nada de esta, y
+  // reusarlo dejaria arrancar la grabacion en plena rampa de la reconexion.
+  if (pc !== pcMedido) {
+    pcMedido = pc;
+    historialFps = [];
+    esperandoDesde = 0;
+    previo = null;
+  }
 
   const reporte = await pc.getStats();
   let video = null;
@@ -179,6 +212,11 @@ async function medir() {
     kbps = ((video.bytesReceived - previo.bytesReceived) * 8) / segundos / 1000;
   }
   previo = video;
+
+  historialFps.push(video.framesPerSecond ?? 0);
+  if (historialFps.length > MUESTRAS_ESTABLE) historialFps.shift();
+
+  if (panel.classList.contains("oculto")) return;
 
   const nombreCodec = codec ? codec.mimeType.replace("video/", "") : "?";
   const perdidos = video.packetsLost ?? 0;
@@ -230,6 +268,11 @@ const ETIQUETA_GESTO = {
 };
 
 let detector = null;
+// La carga en vuelo. ontrack salta una vez por track, y con el audio del
+// telefono son dos: sin esto las dos llamadas veian `detector` vacio mientras
+// el modelo cargaba y armaban dos reconocedores, que se turnaban el hilo
+// principal con ~150 ms por inferencia y trababan el video.
+let cargandoDetector = null;
 let ocupado = false;   // evita que dos gestos seguidos se pisen
 
 const grabador = crearGrabador({
@@ -240,8 +283,13 @@ const grabador = crearGrabador({
       // fragmentado: se abre en un reproductor pero un editor lo rechaza.
       if (e.metodo === "crudo") {
         avisar(`Guardado SIN convertir: ${e.archivo} -- ${e.detalle}`, "malo");
+      } else if (e.metodo === "remux") {
+        // Fallo la recodificacion y quedo el archivo tal como llego: se abre en
+        // cualquier lado, pero es VFR y el editor lo va a descuadrar.
+        avisar(`Guardado VFR: ${e.archivo} -- ${e.detalle}`, "malo");
       } else {
-        avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)`, "bueno");
+        const como = e.detalle ? ` -- ${e.detalle}` : "";
+        avisar(`Guardado: ${e.archivo} (${(e.bytes / 1e6).toFixed(1)} MB)${como}`, "bueno");
       }
       refrescarGaleria();
     } else if (e.estado === "procesando") {
@@ -279,7 +327,26 @@ function hayVideo() {
 let enPausa = false;
 
 function arrancarSiHaceFalta() {
-  if (enPausa || grabador.grabando || !hayVideo()) return;
+  if (enPausa || grabador.grabando || !hayVideo()) {
+    esperandoDesde = 0;
+    return;
+  }
+
+  // No arrancar en la rampa de WebRTC. Con una toma ya en curso esto no cuesta
+  // nada: al cerrar con el pulgar el historial ya esta lleno de muestras buenas
+  // y la siguiente arranca en el mismo instante, sin hueco.
+  if (!videoEstable()) {
+    if (!esperandoDesde) esperandoDesde = performance.now();
+    if (performance.now() - esperandoDesde < ESPERA_MAXIMA_MS) {
+      avisar(`Esperando que el video se estabilice (${historialFps.map((f) => Math.round(f)).join("/") || "-"} fps)`);
+      return;
+    }
+    // Se acabo la paciencia: mejor una toma con la rampa adentro que ninguna.
+    registrar(`grabacion: arranca sin estabilizar tras ${ESPERA_MAXIMA_MS} ms (fps ${historialFps.join("/")})`);
+    avisar("El video no se estabiliza, grabando igual", "malo");
+  }
+
+  esperandoDesde = 0;
   grabador.iniciar(remote.srcObject);
 }
 
@@ -334,9 +401,11 @@ async function arrancarGestos() {
     detector.arrancar();
     return;
   }
+  if (cargandoDetector) return;
   try {
     gestoTexto.textContent = "Gestos: cargando modelo...";
-    detector = await crearDetectorDeGestos({ video: remote, alGesto, alCambiarCandidato });
+    cargandoDetector = crearDetectorDeGestos({ video: remote, alGesto, alCambiarCandidato });
+    detector = await cargandoDetector;
     detector.arrancar();
     gestoTexto.textContent = "Gestos: listos";
   } catch (err) {
@@ -344,6 +413,8 @@ async function arrancarGestos() {
     registrar(`gestos: NO CARGARON ${err.name}: ${err.message}`);
     registrar(`gestos: stack ${String(err.stack || "").slice(0, 400)}`);
     console.error(err);
+  } finally {
+    cargandoDetector = null;
   }
 }
 

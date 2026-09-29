@@ -4,6 +4,10 @@
 // hay una sola consola donde mirar las dos puntas. Esto junta todo en la
 // terminal donde corre `npm start`.
 
+// La version de la UI con la que se cargo esta pagina. Viaja con cada envio y
+// el servidor marca VIEJA la que ya no coincide con el disco.
+import { VERSION } from "/version.js";
+
 const cola = [];
 let temporizador = null;
 let etiqueta = "web";
@@ -22,7 +26,7 @@ function vaciar() {
   fetch("/api/log", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ etiqueta, lineas }),
+    body: JSON.stringify({ etiqueta, version: VERSION, lineas }),
     keepalive: true,
   }).catch(() => {
     // Si el servidor no esta, no hay nada que hacer y no vale la pena romper
@@ -51,3 +55,7 @@ window.addEventListener("unhandledrejection", (e) => {
   registrar(`PROMESA RECHAZADA ${e.reason?.message || e.reason}`);
 });
 window.addEventListener("pagehide", vaciar);
+
+// Sale con la etiqueta buena: la pagina la pone al importar este modulo, antes
+// de que el envio agrupado se dispare.
+registrar(`pagina cargada, version ${VERSION}`);

@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer } from "https";
 import { WebSocketServer } from "ws";
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -10,7 +11,7 @@ import { finalizarToma, hayFfmpeg } from "./remux.js";
 import { montarTransferencias } from "./transferencias.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const GRABACIONES = path.join(__dirname, "grabaciones");
 const TRANSFERENCIAS = path.join(__dirname, "transferencias");
 
@@ -70,8 +71,36 @@ function log(origen, ...resto) {
   console.log(`${new Date().toLocaleTimeString()}  ${origen}  ${resto.join(" ")}`);
 }
 
+// ------------------------------------------------------------ version de la UI
+// Un hash de lo que el navegador ejecuta, public/ y shared/. Cada pagina lo
+// recibe al cargar (/version.js) y lo manda con cada linea de log; si ya no es
+// el del disco, la linea sale marcada VIEJA. Asi se ve en la terminal cual
+// pagina quedo sin recargar despues de un cambio, en vez de adivinarlo.
+function versionUI() {
+  const hash = crypto.createHash("sha1");
+  for (const dir of ["public", "shared"]) {
+    const base = path.join(__dirname, dir);
+    const archivos = fs
+      .readdirSync(base, { recursive: true })
+      .map(String)
+      .filter((f) => /\.(js|mjs|html|css)$/.test(f))
+      .sort();
+    for (const f of archivos) {
+      hash.update(`${dir}/${f}\0`);
+      hash.update(fs.readFileSync(path.join(base, f)));
+    }
+  }
+  return hash.digest("hex").slice(0, 7);
+}
+
 // -------------------------------------------------------------------- estatico
 const app = express();
+
+app.get("/version.js", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.type("application/javascript");
+  res.send(`export const VERSION = "${versionUI()}";\n`);
+});
 
 app.use((req, res, next) => {
   if (req.url !== "/api/log") {
@@ -96,8 +125,12 @@ app.use("/grabaciones", express.static(GRABACIONES));
 // las dos puntas.
 app.post("/api/log", express.json({ limit: "1mb" }), (req, res) => {
   const etiqueta = String(req.body?.etiqueta || "web").slice(0, 20);
+  const suya = String(req.body?.version || "?").slice(0, 12);
+  const vieja = suya !== versionUI() ? " VIEJA-recargar" : "";
   for (const linea of req.body?.lineas || []) {
-    console.log(`${new Date().toLocaleTimeString()}  [${etiqueta}] ${String(linea).slice(0, 500)}`);
+    console.log(
+      `${new Date().toLocaleTimeString()}  [${etiqueta} ${suya}${vieja}] ${String(linea).slice(0, 500)}`
+    );
   }
   res.sendStatus(204);
 });

@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="1200" height="800" role="img" aria-label="iPhone Camera Monitor: el telefono filma y manda el video por WebRTC a la PC, que hace de monitor; los gestos de mano guardan o descartan la toma">
+<defs>
+  <pattern id="pts" width="9" height="9" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.7" fill="#14110F" opacity="0.13"/>
+  </pattern>
+  <pattern id="ptsClaro" width="9" height="9" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1.7" fill="#FFFFFF" opacity="0.15"/>
+  </pattern>
+
+  <g id="musico">
+    <path d="M-44,-86 q44,-18 88,0 l10,120 q-54,15 -108,0 z" fill="#E4573D" stroke="#14110F" stroke-width="6" stroke-linejoin="round"/>
+    <rect x="-13" y="-104" width="26" height="24" fill="#FFD9A8" stroke="#14110F" stroke-width="6"/>
+    <circle cx="0" cy="-122" r="29" fill="#FFD9A8" stroke="#14110F" stroke-width="6"/>
+    <path d="M-30,-130 q8,-28 31,-26 q24,2 27,26 q-13,-14 -30,-12 q-18,2 -28,12 z" fill="#3B2A1F" stroke="#14110F" stroke-width="5" stroke-linejoin="round"/>
+    <g transform="translate(6,10) rotate(-28)">
+      <rect x="44" y="-10" width="108" height="20" rx="4" fill="#8A5A2B" stroke="#14110F" stroke-width="6"/>
+      <rect x="148" y="-17" width="32" height="34" rx="7" fill="#14110F"/>
+      <ellipse cx="0" cy="0" rx="58" ry="44" fill="#F2A03D" stroke="#14110F" stroke-width="6"/>
+      <circle cx="18" cy="0" r="14" fill="#14110F"/>
+      <g stroke="#14110F" stroke-width="2.5" opacity="0.65">
+        <path d="M-34,-5 L146,-5"/><path d="M-34,0 L146,0"/><path d="M-34,5 L146,5"/>
+      </g>
+    </g>
+    <path d="M40,-78 q54,10 76,-28" fill="none" stroke="#14110F" stroke-width="32" stroke-linecap="round"/>
+    <path d="M40,-78 q54,10 76,-28" fill="none" stroke="#E4573D" stroke-width="21" stroke-linecap="round"/>
+    <circle cx="120" cy="-110" r="15" fill="#FFD9A8" stroke="#14110F" stroke-width="5"/>
+    <path d="M-44,-72 q-24,56 22,70" fill="none" stroke="#14110F" stroke-width="32" stroke-linecap="round"/>
+    <path d="M-44,-72 q-24,56 22,70" fill="none" stroke="#E4573D" stroke-width="21" stroke-linecap="round"/>
+    <circle cx="-20" cy="-1" r="15" fill="#FFD9A8" stroke="#14110F" stroke-width="5"/>
+  </g>
+
+  <g id="pulgarArriba">
+    <path d="M-4,-52 q13,0 13,15 l0,17 l17,0 q15,0 15,14 l0,32 q0,16 -17,16 l-40,0 q-16,0 -16,-15 l0,-38 q0,-14 12,-24 q12,-10 12,-17 z" fill="#FFD166" stroke="#14110F" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M-28,-8 l0,50" fill="none" stroke="#14110F" stroke-width="5" opacity="0.5"/>
+  </g>
+</defs>
+
+<rect width="1200" height="800" fill="#FDF3E3"/>
+<rect width="1200" height="800" fill="url(#pts)"/>
+
+<g>
+  <rect x="34" y="28" width="880" height="80" rx="8" fill="#14110F"/>
+  <rect x="28" y="22" width="880" height="80" rx="8" fill="#FFD166" stroke="#14110F" stroke-width="6"/>
+  <text x="52" y="66" font-family="Impact, 'Arial Black', Haettenschweiler, sans-serif" font-size="44" fill="#14110F" letter-spacing="1">iPHONE CAMERA MONITOR</text>
+  <text x="53" y="92" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="18" fill="#14110F">El telefono filma &#183; la PC es el monitor &#183; las manos mandan</text>
+</g>
+
+<g transform="translate(1056,86)">
+  <path d="M0,-70 L16,-24 L63,-36 L29,-3 L68,27 L19,21 L14,70 L-10,27 L-54,44 L-32,1 L-68,-29 L-19,-27 Z" fill="#E4573D" stroke="#14110F" stroke-width="6" stroke-linejoin="round"/>
+  <text x="0" y="-5" text-anchor="middle" font-family="Impact, 'Arial Black', sans-serif" font-size="17" fill="#FDF3E3">SIN</text>
+  <text x="0" y="15" text-anchor="middle" font-family="Impact, 'Arial Black', sans-serif" font-size="17" fill="#FDF3E3">TOCAR</text>
+</g>
+
+<g transform="rotate(-1 290 420)">
+  <rect x="42" y="150" width="470" height="470" rx="10" fill="#14110F"/>
+  <rect x="36" y="144" width="470" height="470" rx="10" fill="#7FD1E8" stroke="#14110F" stroke-width="7"/>
+  <rect x="36" y="144" width="470" height="470" rx="10" fill="url(#ptsClaro)"/>
+
+  <rect x="56" y="162" width="256" height="40" rx="6" fill="#FDF3E3" stroke="#14110F" stroke-width="5"/>
+  <text x="70" y="190" font-family="Impact, 'Arial Black', sans-serif" font-size="24" fill="#14110F">1 &#183; EL TELEFONO FILMA</text>
+
+  <path d="M274,566 l-56,50 M274,566 l56,50 M274,566 l0,46" stroke="#14110F" stroke-width="11" stroke-linecap="round" fill="none"/>
+
+  <rect x="186" y="228" width="176" height="336" rx="26" fill="#14110F"/>
+  <rect x="196" y="238" width="156" height="316" rx="18" fill="#1D2B33"/>
+  <g transform="translate(262,440) scale(0.46)">
+    <use href="#musico"/>
+  </g>
+  <rect x="284" y="250" width="58" height="22" rx="11" fill="#14110F" stroke="#FDF3E3" stroke-width="2.5"/>
+  <text x="313" y="266" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="12" fill="#FDF3E3">Archivos</text>
+  <rect x="196" y="518" width="156" height="36" fill="#14110F" opacity="0.75"/>
+  <text x="274" y="542" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="14" fill="#FFFFFF">Transmitiendo a la PC</text>
+  <rect x="252" y="240" width="44" height="9" rx="4.5" fill="#14110F"/>
+
+  <rect x="380" y="322" width="118" height="34" rx="6" fill="#FDF3E3" stroke="#14110F" stroke-width="4" transform="rotate(7 439 339)"/>
+  <text x="439" y="345" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="800" font-size="16" fill="#14110F" transform="rotate(7 439 339)">1080p30</text>
+</g>
+
+<g>
+  <g stroke="#14110F" stroke-width="6" fill="none" stroke-linecap="round">
+    <path d="M556,344 q40,-36 80,0"/>
+    <path d="M572,322 q24,-21 48,0"/>
+  </g>
+  <circle cx="596" cy="356" r="7" fill="#14110F"/>
+  <path d="M524,392 l108,0 l0,-22 l58,36 l-58,36 l0,-22 l-108,0 z" fill="#E4573D" stroke="#14110F" stroke-width="6" stroke-linejoin="round"/>
+  <rect x="512" y="458" width="192" height="64" rx="8" fill="#FFD166" stroke="#14110F" stroke-width="5"/>
+  <text x="608" y="483" text-anchor="middle" font-family="Impact, 'Arial Black', sans-serif" font-size="22" fill="#14110F">WebRTC</text>
+  <text x="608" y="507" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="14" fill="#14110F">punto a punto, por tu WiFi</text>
+</g>
+
+<g transform="rotate(1 950 420)">
+  <rect x="726" y="150" width="440" height="470" rx="10" fill="#14110F"/>
+  <rect x="720" y="144" width="440" height="470" rx="10" fill="#9BE3B4" stroke="#14110F" stroke-width="7"/>
+  <rect x="720" y="144" width="440" height="470" rx="10" fill="url(#ptsClaro)"/>
+
+  <rect x="740" y="162" width="292" height="40" rx="6" fill="#FDF3E3" stroke="#14110F" stroke-width="5"/>
+  <text x="754" y="190" font-family="Impact, 'Arial Black', sans-serif" font-size="24" fill="#14110F">2 &#183; LA PC ES EL MONITOR</text>
+
+  <path d="M940,524 l0,30" stroke="#14110F" stroke-width="14"/>
+  <rect x="876" y="552" width="128" height="14" rx="7" fill="#14110F"/>
+
+  <rect x="746" y="226" width="388" height="298" rx="14" fill="#14110F"/>
+  <rect x="757" y="237" width="366" height="266" rx="7" fill="#1D2B33"/>
+
+  <rect x="757" y="237" width="366" height="26" fill="#0E1418"/>
+  <g fill="#3A4D57">
+    <rect x="766" y="243" width="34" height="14" rx="4"/>
+    <rect x="806" y="243" width="34" height="14" rx="4"/>
+    <rect x="846" y="243" width="34" height="14" rx="4"/>
+  </g>
+  <circle cx="1073" cy="250" r="7" fill="#E4573D"/>
+  <text x="1086" y="256" font-family="'Segoe UI', system-ui, sans-serif" font-weight="800" font-size="14" fill="#FFFFFF">0:42</text>
+
+  <rect x="757" y="263" width="74" height="240" fill="#12181C"/>
+  <text x="794" y="284" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-weight="800" font-size="12" fill="#9BE3B4">TOMAS</text>
+  <g fill="#3A4D57" stroke="#5E7885" stroke-width="2">
+    <rect x="767" y="296" width="54" height="36" rx="4"/>
+    <rect x="767" y="342" width="54" height="36" rx="4"/>
+    <rect x="767" y="388" width="54" height="36" rx="4"/>
+  </g>
+
+  <g transform="translate(958,432) scale(0.56)">
+    <use href="#musico"/>
+  </g>
+
+  <rect x="831" y="468" width="292" height="35" fill="#14110F" opacity="0.8"/>
+  <text x="843" y="491" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="14" fill="#FFD166">pulgar arriba</text>
+  <rect x="949" y="480" width="162" height="10" rx="5" fill="#3A4D57"/>
+  <rect x="949" y="480" width="162" height="10" rx="5" fill="#9BE3B4"/>
+</g>
+
+<g>
+  <rect x="42" y="656" width="1124" height="118" rx="10" fill="#14110F"/>
+  <rect x="36" y="650" width="1124" height="118" rx="10" fill="#FDF3E3" stroke="#14110F" stroke-width="7"/>
+
+  <g transform="translate(120,714)">
+    <use href="#pulgarArriba" transform="scale(0.68)"/>
+    <text x="46" y="-8" font-family="Impact, 'Arial Black', sans-serif" font-size="26" fill="#14110F">GUARDA</text>
+    <text x="47" y="17" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="15" fill="#14110F">y ya arranca la siguiente</text>
+  </g>
+
+  <g transform="translate(452,714)">
+    <use href="#pulgarArriba" transform="rotate(180) scale(0.68)"/>
+    <text x="46" y="-8" font-family="Impact, 'Arial Black', sans-serif" font-size="26" fill="#14110F">DESCARTA</text>
+    <text x="47" y="17" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="15" fill="#14110F">no quedo buena, de nuevo</text>
+  </g>
+
+  <line x1="800" y1="674" x2="800" y2="746" stroke="#14110F" stroke-width="4" stroke-dasharray="9 9"/>
+
+  <g transform="translate(834,714)">
+    <rect x="0" y="-30" width="54" height="54" rx="8" fill="#2EC4B6" stroke="#14110F" stroke-width="6"/>
+    <path d="M19,-16 l22,13 l-22,13 z" fill="#14110F"/>
+    <text x="72" y="-8" font-family="Impact, 'Arial Black', sans-serif" font-size="26" fill="#14110F">30 fps CLAVADOS</text>
+    <text x="73" y="17" font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="15" fill="#14110F">MP4 que entra derecho en DaVinci</text>
+  </g>
+</g>
+</svg>

@@ -15,10 +15,23 @@
               padding: 14px calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-bottom));
               background: rgba(0,0,0,.65); text-align: center; }
     #estado.error { background: rgba(150,20,20,.9); }
+
+    /* El unico camino a las transferencias desde el telefono: aca no hay
+       cabecera como en el monitor de la PC, y escribir la URL a mano en
+       Safari no es un plan. Arriba a la derecha, lejos del pulgar que
+       sostiene el telefono y fuera del notch. */
+    #aTransferir { position: fixed; z-index: 2;
+                   top: calc(10px + env(safe-area-inset-top));
+                   right: calc(12px + env(safe-area-inset-right));
+                   padding: 9px 15px; border-radius: 999px;
+                   color: #fff; text-decoration: none; font-size: 14px;
+                   background: rgba(0,0,0,.6);
+                   border: 1px solid rgba(255,255,255,.28); }
   </style>
 </head>
 <body>
   <video id="preview" autoplay playsinline muted></video>
+  <a id="aTransferir" href="transferir.html">Archivos</a>
   <div id="estado">Tocá la pantalla para empezar</div>
   <script type="module" src="phone.js"></script>
 </body>

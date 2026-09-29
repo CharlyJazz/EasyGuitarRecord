@@ -261,6 +261,13 @@ estado.addEventListener("click", (e) => {
   );
 });
 
+// Ir a transferencias no puede costar el arranque de la camara: armar()
+// escucha el click en el body con once, asi que sin frenar la propagacion
+// el toque sobre el enlace consumiria el "toca para empezar" y al volver la
+// pagina quedaria muerta.
+document.getElementById("aTransferir")
+  .addEventListener("click", (e) => e.stopPropagation());
+
 function armar() {
   document.body.addEventListener("click", start, { once: true });
 }

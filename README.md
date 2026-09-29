@@ -1,5 +1,10 @@
 # iPhone Camera Monitor
 
+![El telefono filma y manda el video por WebRTC a la PC, que hace de monitor; los gestos de mano guardan o descartan la toma](docs/portada.svg)
+
+<sub>La portada es `docs/portada.svg` (vectorial, se edita a mano). Hay un PNG a 2x
+en `docs/portada.png` por si algun visor no dibuja el SVG.</sub>
+
 Monitor en vivo de la camara trasera del iPhone en una pantalla de Windows, con
 grabacion en la PC controlada por gestos de mano. Misma red local, sin apps
 nativas y sin Xcode.
@@ -53,9 +58,9 @@ vive en la PC, asi que gesto y grabacion quedan del mismo lado.
 ## Grabacion
 
 Las tomas se guardan en `grabaciones/`, **en la PC**, como
-`toma-2026-09-12_16-04-31.mp4`: H.264 en un MP4 con el indice adelante, que es
-lo que DaVinci Resolve y cualquier editor esperan (ver mas abajo por que hace
-falta convertirlo).
+`toma-2026-09-12_16-04-31.mp4`: H.264 en un MP4 con el indice adelante y **tasa
+de cuadros fija**, que es lo que DaVinci Resolve y cualquier editor esperan (ver
+mas abajo por que hace falta convertirlo).
 
 Los trozos del `MediaRecorder` salen por WebSocket a medida que se generan y el
 servidor los escribe a disco en un archivo `.parcial-*`, que se renombra al
@@ -65,7 +70,13 @@ medio de una toma, el parcial se borra solo.
 
 `GET /api/grabaciones` lista lo que hay guardado.
 
-### Por que la toma se remuxea al cerrarse
+### Por que la toma se convierte al cerrarse
+
+Hay **dos** problemas distintos entre lo que escupe el `MediaRecorder` y lo que
+un editor acepta. El primero se veia como "archivo dañado"; el segundo, peor,
+importa sin quejarse y descuadra el audio.
+
+#### 1. El envoltorio: fMP4
 
 El `MediaRecorder` con `video/mp4;codecs=avc1` **no escribe un MP4 normal**:
 escribe un **MP4 fragmentado** (fMP4). No tiene alternativa, porque va emitiendo
@@ -82,18 +93,68 @@ Medido sobre una toma cruda, el `moov` declara `duration=0` y `ffprobe` devuelve
 `nb_frames=N/A`. Un reproductor de streaming lo tolera; **DaVinci Resolve no
 importa fMP4** y lo reporta como archivo dañado.
 
-Por eso, al guardar, `remux.js` pasa el parcial por ffmpeg:
+#### 2. El ritmo: VFR
+
+El `MediaRecorder` escribe los tiempos de llegada **reales** de WebRTC, que es
+adaptativo por diseño y baja los fps cuando la conexion arranca o se congestiona.
+El archivo queda **VFR** (tasa de cuadros variable) y los editores necesitan una
+tasa fija: conforman el clip a **un solo numero** y el material se corre.
+
+Medido sobre 5 tomas: entre **28 y 124 intervalos distintos** entre cuadros (un
+archivo de tasa fija tiene 1), y la tasa que el archivo *declara* sale distinta
+en cada toma, porque se deriva del hueco mas corto que aparezca:
+
+| Toma | declara | fps reales | conformada a lo que declara |
+|---|---|---|---|
+| `18-09 23-03-23` | 29,97 | 28,87 | 146,4 s en vez de 152,0 |
+| `16-09 18-38-19` | 29,97 | 29,93 | 143,4 s en vez de 143,7 |
+| `16-09 18-40-34` | **59,94** | 29,96 | 67,5 s en vez de 135,1 |
+| `16-09 10-43-21` | **60** | **22,46** | 26,5 s en vez de 70,7 |
+| `16-09 10-34-48` | 30 | 29,76 | 320,4 s en vez de 323,0 |
+
+El daño se concentra en los primeros ~10 segundos, mientras WebRTC levanta el
+bitrate: en la toma del 18/09 hay un hueco de **2.500 ms** en el segundo 3 y el
+segundo 4 **no tiene ni un cuadro**. Pasado el segundo 10 la captura queda
+clavada en 30 fps (133 de 141 segundos, exactos). El deficit acumulado llega a
+177 cuadros en el segundo 10 y **se queda plano** hasta el final: no es una
+deriva que crece, es un salto de 5,6 s que se come al principio y arrastra.
+
+### Como se arreglan los dos
+
+Al guardar, `remux.js` recodifica a **tasa fija**. La recodificacion reescribe
+las cajas igual, asi que se come tambien el problema del envoltorio:
 
 ```bash
-ffmpeg -i parcial.mp4 -c copy -movflags +faststart toma.mp4
+ffmpeg -i parcial.mp4 -fps_mode cfr -r 30        -c:v h264_nvenc -preset p5 -rc vbr -cq 20 -b:v 0 -maxrate 25M -bufsize 50M        -pix_fmt yuv420p -c:a copy -movflags +faststart toma.mp4
 ```
 
-Es un **remux, no una recodificacion**: se reescriben las cajas con el indice
-completo adelante y se copian los mismos paquetes H.264 tal cual. No se pierde
-un solo bit de calidad, y tarda decimas de segundo (medido: 0,14 s).
+`-fps_mode cfr` **duplica cuadros en los huecos en vez de comprimir el tiempo**,
+que es lo unico que sirve para sincronizar: la duracion real se conserva. Los
+segundos flojos se ven congelados, pero en sync. El audio va con `-c:a copy`, sin
+tocar: la sincronizacion se arregla del lado del video.
 
-Si el navegador cayo al respaldo WebM, ahi si hay que recodificar a H.264:
-Resolve tampoco lee WebM y VP9 no entra en un MP4 copiando.
+Verificado sobre la peor toma (declaraba 60, tenia 22,46): sale con
+`r_frame_rate = avg_frame_rate = 30/1`, **un solo intervalo** entre cuadros
+(33,33 ms), 30 fps en cada uno de los 70 segundos, y 70,73 s de duracion contra
+los 70,68 originales.
+
+Se intenta en orden, y el primero que sale bien gana:
+
+1. **CFR con `h264_nvenc`** si el binario lo trae. Medido: **13,3 s** para una
+   toma de 152 s en 1080p.
+2. **CFR con `libx264`** (`veryfast`, `crf 18`), por si no hay placa NVIDIA.
+   `-encoders` dice que ffmpeg trae nvenc compilado, no que haya GPU, asi que el
+   respaldo es por fallo en tiempo de ejecucion, no por deteccion previa.
+3. **Remux por copia** (`-c copy`, 0,14 s): arregla el envoltorio pero deja el
+   archivo VFR. Peor, pero infinitamente mejor que perder la toma. El aviso del
+   monitor lo dice en rojo: *"Guardado VFR"*.
+4. El crudo tal cual, avisando.
+
+`FPS_SALIDA` cambia los 30 fps de destino. `CFR=0` vuelve al remux por copia de
+antes, para material que no se va a editar.
+
+Si el navegador cayo al respaldo WebM (VP8/VP9), ahi el paso 3 no existe: Resolve
+tampoco lee WebM y VP9 no entra en un MP4 copiando.
 
 **Hace falta ffmpeg en el PATH** (`winget install Gyan.FFmpeg`, o la variable
 `FFMPEG` apuntando al binario). Si no esta, el servidor avisa al arrancar y en
@@ -212,6 +273,32 @@ La captura se pide en 1080p30. Para elegir una lente trasera concreta (ultra
 wide / tele) hay que usar `enumerateDevices()` y pasar el `deviceId` exacto en
 vez de `facingMode`.
 
+### Por que no se graba apenas llega el video
+
+WebRTC arranca bajo y sube el bitrate de a poco. Grabar durante esa rampa es lo
+que metia los huecos que despues descuadran la toma en el editor (ver *El ritmo:
+VFR*, mas arriba): medido, hueco de 2.500 ms en el segundo 3 y cero cuadros en el
+segundo 4.
+
+Por eso el monitor no arranca la toma hasta tener **3 segundos seguidos por
+encima de 24 fps** en el `framesPerSecond` de `getStats()`. El umbral separa
+limpio lo medido: el tramo estable nunca bajo de 28 fps y la rampa nunca paso de
+16. Mientras espera lo dice en pantalla, con los fps que va viendo.
+
+Dos detalles que no son obvios:
+
+- **La medicion corre siempre**, aunque el panel de estadisticas este escondido.
+  Si solo midiera con el panel abierto, el arranque de la grabacion dependeria de
+  si alguien aprieta `S`.
+- **Cerrar una toma con el pulgar no espera nada.** A esa altura el historial ya
+  esta lleno de muestras buenas, asi que la siguiente arranca en el mismo
+  instante y no se pierde material. Verificado punta a punta: video a las
+  `20:50:35`, primera toma a las `20:50:38` (3 s), pulgar arriba a las `20:50:47`
+  y la siguiente ya corriendo a las `20:50:48`.
+
+Si a los **10 segundos** el video todavia no se estabilizo, arranca igual y deja
+el motivo en el log: mejor una toma con la rampa adentro que ninguna.
+
 ## Estructura
 
 ```
@@ -224,7 +311,7 @@ public/monitor.html|js     pagina de la PC (receptor, gestos, grabacion)
 public/gestos.js           MediaPipe Gesture Recognizer
 public/grabacion.js        MediaRecorder -> WebSocket -> disco
 public/transferir.*        pasar archivos entre el telefono y la PC
-remux.js                   cierra la toma como MP4 editable (ffmpeg)
+remux.js                   cierra la toma como MP4 editable y CFR (ffmpeg)
 transferencias.js          carpeta compartida (subida/bajada por la LAN)
 modelos/                   modelo .task (gitignoreado)
 grabaciones/               las tomas (gitignoreado)
