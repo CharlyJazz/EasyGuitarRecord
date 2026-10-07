@@ -54,6 +54,16 @@ const FPS_SALIDA = Number(process.env.FPS_SALIDA) || 30;
 // el. Sirve para material que no se va a editar.
 const FORZAR_CFR = process.env.CFR !== "0";
 
+// Sonoridad a la que se lleva el audio de cada toma, en LUFS. -14 es lo que
+// normalizan YouTube, Instagram y TikTok. NORMALIZAR=0 deja el audio intacto.
+const LUFS_OBJETIVO = Number(process.env.LUFS_OBJETIVO) || -14;
+const NORMALIZAR = process.env.NORMALIZAR !== "0";
+
+// Techo de ganancia: por arriba de esto lo que se sube es ruido de fondo, no
+// guitarra. Y por debajo de -70 LUFS la toma es silencio (o no tiene mic).
+const GANANCIA_MAXIMA_DB = 40;
+const LUFS_SILENCIO = -70;
+
 let disponible = null;
 
 export function hayFfmpeg() {
@@ -102,6 +112,49 @@ function correr(args) {
   });
 }
 
+// El microfono se pide con autoGainControl en false (phone.js): el AGC de iOS
+// bombea el volumen entre frase y frase y le come el ataque a la guitarra. El
+// precio es que el mic crudo del iPhone llega muy bajo. Medido en la toma del
+// 07/10: -47,9 LUFS integrado, pico -27,1 dBFS -- 34 dB por debajo de lo que
+// suena un video publicado, y sin nada que lo este limitando.
+//
+// El arreglo es UNA ganancia fija para toda la toma (la que la lleva al
+// objetivo) mas un limitador que solo atrapa los picos que pasarian de -1 dB.
+// No es un AGC: la ganancia no se mueve, asi que no bombea. Se probo tambien
+// con un compresor delante y aplastaba la dinamica (LRA 6,1 -> 2,7) sin llegar
+// al objetivo; solo ganancia + limitador da -14,4 LUFS, pico -0,9, LRA 5,0.
+function medirLufs(archivo) {
+  return new Promise((resolve) => {
+    const p = spawn(FFMPEG, ["-hide_banner", "-nostats", "-i", archivo, "-vn",
+      "-af", "ebur128=framelog=quiet", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d.toString()));
+    p.on("error", () => resolve(null));
+    p.on("close", () => {
+      // El resumen final trae "I: -47.9 LUFS"; las lineas por cuadro no salen
+      // con framelog=quiet.
+      const m = [...err.matchAll(/I:\s+(-?[\d.]+|-inf) LUFS/g)].pop();
+      resolve(m && m[1] !== "-inf" ? Number(m[1]) : null);
+    });
+  });
+}
+
+async function argsDeAudio(parcial, esWebm) {
+  const recodificar = (filtro) => [...(filtro ? ["-af", filtro] : []), "-c:a", "aac", "-b:a", "192k"];
+  const sinTocar = esWebm ? recodificar(null) : ["-c:a", "copy"];
+
+  if (!NORMALIZAR) return { audio: sinTocar, nota: "" };
+
+  const lufs = await medirLufs(parcial);
+  if (lufs === null || lufs < LUFS_SILENCIO) return { audio: sinTocar, nota: "audio sin señal, no se normaliza" };
+
+  const ganancia = Math.min(LUFS_OBJETIVO - lufs, GANANCIA_MAXIMA_DB);
+  if (ganancia < 0.5) return { audio: sinTocar, nota: `audio ${lufs.toFixed(1)} LUFS, ya alcanza` };
+
+  const filtro = `volume=${ganancia.toFixed(1)}dB,alimiter=limit=-1dB:attack=5:release=60:level=false`;
+  return { audio: recodificar(filtro), nota: `audio ${lufs.toFixed(1)} LUFS +${ganancia.toFixed(1)} dB` };
+}
+
 /**
  * Deja la toma lista para editar. Devuelve { destino, metodo, detalle }.
  *
@@ -131,10 +184,11 @@ export async function finalizarToma(parcial, destinoBase) {
     return guardarCrudo("sin ffmpeg: el archivo queda fragmentado y los editores lo van a rechazar");
   }
 
-  // El audio del MP4 ya es AAC y se copia sin tocar: la sincronizacion se
-  // arregla del lado del video, no moviendo el audio. El del WebM es Opus y no
-  // entra en un MP4.
-  const audio = esWebm ? ["-c:a", "aac", "-b:a", "192k"] : ["-c:a", "copy"];
+  // La sincronizacion se arregla del lado del video, no moviendo el audio: el
+  // filtro de volumen no cambia ni un tiempo. El del WebM es Opus y no entra en
+  // un MP4, asi que ese se recodifica siempre.
+  const { audio, nota } = await argsDeAudio(parcial, esWebm);
+  const conNota = (texto) => (nota ? `${texto}; ${nota}` : texto);
 
   const intentos = [];
 
@@ -155,7 +209,7 @@ export async function finalizarToma(parcial, destinoBase) {
          ...argsDeVideo(encoder), "-pix_fmt", "yuv420p", ...audio,
          "-movflags", "+faststart", destino]
       : ["-v", "error", "-y", "-i", parcial,
-         "-c", "copy", "-movflags", "+faststart", destino];
+         "-c:v", "copy", ...audio, "-movflags", "+faststart", destino];
 
     const r = await correr(args);
     if (!r.ok) {
@@ -169,15 +223,15 @@ export async function finalizarToma(parcial, destinoBase) {
       return {
         destino,
         metodo: "remux",
-        detalle: ultimoError
+        detalle: conNota(ultimoError
           ? `sin recodificar: el archivo queda VFR (${ultimoError})`
-          : "sin recodificar: el archivo queda VFR",
+          : "sin recodificar: el archivo queda VFR"),
       };
     }
     return {
       destino,
       metodo: "cfr",
-      detalle: `${FPS_SALIDA} fps constantes (${encoder})`,
+      detalle: conNota(`${FPS_SALIDA} fps constantes (${encoder})`),
     };
   }
 

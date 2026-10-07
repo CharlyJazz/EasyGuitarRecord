@@ -1,339 +1,432 @@
 # iPhone Camera Monitor
 
-![El telefono filma y manda el video por WebRTC a la PC, que hace de monitor; los gestos de mano guardan o descartan la toma](docs/portada.svg)
+![The phone films and streams the video over WebRTC to the PC, which acts as the monitor; hand gestures save or discard the take](docs/portada.svg)
 
-<sub>La portada es `docs/portada.svg` (vectorial, se edita a mano). Hay un PNG a 2x
-en `docs/portada.png` por si algun visor no dibuja el SVG.</sub>
+<sub>The cover is `docs/portada.svg` (vector, hand-edited). There is a 2x PNG at
+`docs/portada.png` for viewers that don't render SVG.</sub>
 
-Monitor en vivo de la camara trasera del iPhone en una pantalla de Windows, con
-grabacion en la PC controlada por gestos de mano. Misma red local, sin apps
-nativas y sin Xcode.
+Live monitor of the iPhone's rear camera on a Windows screen, with recording on
+the PC controlled by hand gestures. Same local network, no native apps, no
+Xcode.
 
-El iPhone entra por Safari a una pagina servida desde esta PC, pide la camara
-con `getUserMedia` y manda el video por **WebRTC** directo a la PC. El servidor
-Node solo hace de *signaling*: intercambia SDP e ICE. **El video nunca pasa por
-el servidor**, va peer-to-peer.
+Built for filming yourself playing an instrument: the phone sits on a tripod,
+the PC screen shows exactly what the camera sees, and you save or discard takes
+with a thumb — you never touch the phone during the session.
 
-## Arranque
+The iPhone opens a page served by the PC in Safari, grabs the camera with
+`getUserMedia` and sends the video over **WebRTC** straight to the PC. The Node
+server only does *signaling* (exchanges SDP and ICE). **The video never goes
+through the server**: it is peer-to-peer.
+
+## Features
+
+- **Live monitor** of the iPhone's rear camera at 1080p30 over the LAN.
+- **Hands-free takes**: recording runs continuously; thumb up saves the take
+  and starts the next one, thumb down throws it away and starts over. Gesture
+  recognition runs on the PC with MediaPipe.
+- **Takes gallery** on the monitor, with a trash folder instead of deleting.
+- **Recording on the PC**, written to disk as it streams in, never held in
+  memory.
+- **Editor-ready files**: every take is converted to a regular MP4 at a
+  **constant 30 fps**, so DaVinci Resolve imports it and it stays in sync.
+- **Audio loudness normalization** to -14 LUFS with a peak limiter, without the
+  pumping of iOS's automatic gain control.
+- **Phone ↔ PC shared folder** for moving large videos across the LAN without
+  recompressing them (a local WeTransfer replacement).
+- **Auto-reconnect** when Safari is suspended or the WiFi drops, plus a live
+  stats panel (resolution, fps, bitrate, codec, loss, jitter).
+- **Self-signed HTTPS** generated automatically, covering every LAN IP of the
+  PC.
+
+## Getting started
+
+Requirements: Node 18+, [ffmpeg](https://ffmpeg.org/) on the `PATH`, Chrome or
+Edge on the PC, and an iPhone on the same network.
 
 ```bash
-npm install      # baja tambien el modelo de gestos (~8 MB)
+npm install      # also downloads the gesture model (~8 MB)
 npm start
 ```
 
 - **PC** (Chrome/Edge): `https://localhost:3000/monitor.html`
-- **iPhone** (Safari, misma red): `https://<IP-DE-LA-PC>:3000/phone.html`
+- **iPhone** (Safari, same network): `https://<PC-IP>:3000/phone.html`
 
-El servidor imprime las dos URLs con la IP ya resuelta. Tocá una vez la pantalla
-del iPhone (Safari exige un gesto del usuario para dar la camara) y en 1-2
-segundos aparece el feed.
+The server prints both URLs with the IP already resolved. Tap the iPhone screen
+once (Safari requires a user gesture to grant the camera) and the feed shows up
+within 1–2 seconds.
 
-## Gestos
+## Gestures
 
-Se hacen **a la camara del telefono**, y los lee la PC sobre el video que
-recibe:
+You make them **at the phone's camera**, and the PC reads them from the video it
+receives. Recording runs on its own while there is video: each thumb closes the
+current take and starts the next one, so you never have to say "go".
 
-| gesto | accion |
+| gesture | action |
 | --- | --- |
-| palma abierta (high five) | empezar una toma; si ya hay una grabando, la reinicia |
-| pulgar arriba | guardar la toma |
-| pulgar abajo | descartar la toma |
+| thumb up | save the take and keep recording the next one |
+| thumb down | discard the take and start over |
 
-Hay que **sostener el gesto 700 ms**: una mano que pasa tocando delante de la
-camara no dispara nada. La barra abajo a la izquierda muestra cuanto falta.
-Despues de disparar hay 1,5 s de enfriamiento, y para repetir el mismo gesto
-hay que soltarlo primero.
+Gestures must be **held for 700 ms**: a hand passing in front of the camera
+while playing triggers nothing, and a bar at the bottom left shows the
+progress. After firing there is a 1.5 s cooldown.
 
-Los mismos comandos por teclado, para probar sin ponerse delante de la camara:
-`R` empezar/reiniciar, `G` guardar, `D` descartar.
+There used to be an open-palm gesture to restart, and it didn't survive real
+use: fingers on the fretboard are four extended fingers, just like an open
+palm, so it kept restarting takes by itself. Thumbs don't show up by accident
+while playing, and the classifier recognizes them with high, stable
+confidence.
 
-El modelo es el **Gesture Recognizer** de MediaPipe, que ya trae entrenadas
-`Open_Palm`, `Thumb_Up` y `Thumb_Down`. No hay clasificador propio.
+The model is MediaPipe's **Gesture Recognizer**, which ships with `Thumb_Up` and
+`Thumb_Down` already trained, backed by a geometric check on the 21 hand
+landmarks because with a guitar in front of you the classifier sometimes calls
+a thumb up "None". Votes are counted over a 1 s window rather than requiring
+consecutive frames, since the score oscillates around the threshold.
 
-**Corre en la PC, no en el iPhone**, a proposito: el telefono ya esta
-capturando y codificando H.264, y sumarle inferencia lo calienta y lo hace
-bajar la calidad del video que justamente queremos mirar. Ademas la grabacion
-vive en la PC, asi que gesto y grabacion quedan del mismo lado.
+Keyboard shortcuts on the monitor:
 
-## Grabacion
+| key | action |
+| --- | --- |
+| `G` | save the take (same as thumb up) |
+| `D` | discard the take (same as thumb down) |
+| `P` | pause / resume recording |
+| `S` | stats panel |
+| `F` or double click | fullscreen |
+| `V` | hide / show the takes gallery |
+| `H` | hide / show the header |
 
-Las tomas se guardan en `grabaciones/`, **en la PC**, como
-`toma-2026-09-12_16-04-31.mp4`: H.264 en un MP4 con el indice adelante y **tasa
-de cuadros fija**, que es lo que DaVinci Resolve y cualquier editor esperan (ver
-mas abajo por que hace falta convertirlo).
+Deleting a take from the gallery moves it to `grabaciones/.papelera` instead of
+destroying it.
 
-Los trozos del `MediaRecorder` salen por WebSocket a medida que se generan y el
-servidor los escribe a disco en un archivo `.parcial-*`, que se renombra al
-guardar y se borra al descartar. No se junta el video entero en memoria: una
-toma de varios minutos a 12 Mbps son cientos de MB. Si la pestaña se cierra en
-medio de una toma, el parcial se borra solo.
+**Inference runs on the PC, not on the iPhone**, on purpose: the phone is
+already capturing and encoding H.264, and adding inference heats it up and makes
+it lower the quality of the very video we want to watch. Also the recording
+lives on the PC, so gestures and recording stay on the same side. After 3 s
+without a thumb it drops from ~12 inferences per second to one, which keeps the
+monitor video smooth.
 
-`GET /api/grabaciones` lista lo que hay guardado.
+## Recording
 
-### Por que la toma se convierte al cerrarse
+Takes are saved in `grabaciones/`, **on the PC**, as
+`toma-2026-09-12_16-04-31.mp4`: H.264 in an MP4 with the index up front and a
+**constant frame rate**, which is what DaVinci Resolve and any editor expect
+(see below for why it has to be converted).
 
-Hay **dos** problemas distintos entre lo que escupe el `MediaRecorder` y lo que
-un editor acepta. El primero se veia como "archivo dañado"; el segundo, peor,
-importa sin quejarse y descuadra el audio.
+The `MediaRecorder` chunks are sent over WebSocket as they are produced and the
+server writes them to disk in a `.parcial-*` file, which is renamed on save and
+deleted on discard. The whole video is never held in memory: a take of several
+minutes at 12 Mbps is hundreds of MB. If the tab closes mid-take, the partial
+file is cleaned up.
 
-#### 1. El envoltorio: fMP4
+`GET /api/grabaciones` lists what has been saved.
 
-El `MediaRecorder` con `video/mp4;codecs=avc1` **no escribe un MP4 normal**:
-escribe un **MP4 fragmentado** (fMP4). No tiene alternativa, porque va emitiendo
-el archivo de a trozos sin saber cuanto va a durar la toma.
+### Why the take is converted when it ends
+
+There are **two** separate problems between what `MediaRecorder` produces and
+what an editor accepts. The first showed up as a "corrupted file"; the second,
+worse, imports without complaint and drifts out of sync with the audio.
+
+#### 1. The container: fMP4
+
+`MediaRecorder` with `video/mp4;codecs=avc1` **does not write a regular MP4**:
+it writes a **fragmented MP4** (fMP4). It has no choice, because it emits the
+file in chunks without knowing how long the take will be.
 
 ```
-fragmentado:  ftyp | moov (vacio, duration=0) | moof+mdat | moof+mdat | ...
-normal:       ftyp | moov (indice completo)   | mdat
+fragmented:  ftyp | moov (empty, duration=0) | moof+mdat | moof+mdat | ...
+regular:     ftyp | moov (full index)        | mdat
 ```
 
-En el fragmentado el `moov` no trae la tabla de muestras (`stbl`: stts/stsz/
-stco): **no hay indice**, y la duracion real esta repartida en cada `moof`.
-Medido sobre una toma cruda, el `moov` declara `duration=0` y `ffprobe` devuelve
-`nb_frames=N/A`. Un reproductor de streaming lo tolera; **DaVinci Resolve no
-importa fMP4** y lo reporta como archivo dañado.
+In the fragmented file the `moov` has no sample table (`stbl`: stts/stsz/stco):
+**there is no index**, and the real duration is spread across every `moof`.
+Measured on a raw take, the `moov` declares `duration=0` and `ffprobe` returns
+`nb_frames=N/A`. A streaming player tolerates it; **DaVinci Resolve does not
+import fMP4** and reports it as a corrupted file.
 
-#### 2. El ritmo: VFR
+#### 2. The timing: VFR
 
-El `MediaRecorder` escribe los tiempos de llegada **reales** de WebRTC, que es
-adaptativo por diseño y baja los fps cuando la conexion arranca o se congestiona.
-El archivo queda **VFR** (tasa de cuadros variable) y los editores necesitan una
-tasa fija: conforman el clip a **un solo numero** y el material se corre.
+`MediaRecorder` writes the **real** arrival times from WebRTC, which is adaptive
+by design and lowers the fps while the connection ramps up or gets congested.
+The file ends up **VFR** (variable frame rate), and editors need a fixed rate:
+they conform the clip to **a single number** and the footage slides.
 
-Medido sobre 5 tomas: entre **28 y 124 intervalos distintos** entre cuadros (un
-archivo de tasa fija tiene 1), y la tasa que el archivo *declara* sale distinta
-en cada toma, porque se deriva del hueco mas corto que aparezca:
+Measured over 5 takes: between **28 and 124 distinct frame intervals** (a
+constant-rate file has 1), and the rate the file *declares* differs on every
+take, because it is derived from the shortest gap that appears:
 
-| Toma | declara | fps reales | conformada a lo que declara |
+| Take | declares | real fps | conformed to what it declares |
 |---|---|---|---|
-| `18-09 23-03-23` | 29,97 | 28,87 | 146,4 s en vez de 152,0 |
-| `16-09 18-38-19` | 29,97 | 29,93 | 143,4 s en vez de 143,7 |
-| `16-09 18-40-34` | **59,94** | 29,96 | 67,5 s en vez de 135,1 |
-| `16-09 10-43-21` | **60** | **22,46** | 26,5 s en vez de 70,7 |
-| `16-09 10-34-48` | 30 | 29,76 | 320,4 s en vez de 323,0 |
+| `18-09 23-03-23` | 29.97 | 28.87 | 146.4 s instead of 152.0 |
+| `16-09 18-38-19` | 29.97 | 29.93 | 143.4 s instead of 143.7 |
+| `16-09 18-40-34` | **59.94** | 29.96 | 67.5 s instead of 135.1 |
+| `16-09 10-43-21` | **60** | **22.46** | 26.5 s instead of 70.7 |
+| `16-09 10-34-48` | 30 | 29.76 | 320.4 s instead of 323.0 |
 
-El daño se concentra en los primeros ~10 segundos, mientras WebRTC levanta el
-bitrate: en la toma del 18/09 hay un hueco de **2.500 ms** en el segundo 3 y el
-segundo 4 **no tiene ni un cuadro**. Pasado el segundo 10 la captura queda
-clavada en 30 fps (133 de 141 segundos, exactos). El deficit acumulado llega a
-177 cuadros en el segundo 10 y **se queda plano** hasta el final: no es una
-deriva que crece, es un salto de 5,6 s que se come al principio y arrastra.
+The damage is concentrated in the first ~10 seconds, while WebRTC raises the
+bitrate: one take has a **2,500 ms** gap at second 3 and **not a single frame**
+at second 4. After second 10 the capture stays locked at 30 fps (133 of 141
+seconds, exact). The accumulated deficit reaches 177 frames at second 10 and
+**stays flat** until the end: it is not a growing drift, it is a 5.6 s jump
+taken at the start and carried along.
 
-### Como se arreglan los dos
+### How both are fixed
 
-Al guardar, `remux.js` recodifica a **tasa fija**. La recodificacion reescribe
-las cajas igual, asi que se come tambien el problema del envoltorio:
+On save, `remux.js` re-encodes to a **constant rate**. Re-encoding rewrites the
+boxes anyway, so it also fixes the container problem:
 
 ```bash
-ffmpeg -i parcial.mp4 -fps_mode cfr -r 30        -c:v h264_nvenc -preset p5 -rc vbr -cq 20 -b:v 0 -maxrate 25M -bufsize 50M        -pix_fmt yuv420p -c:a copy -movflags +faststart toma.mp4
+ffmpeg -i partial.mp4 -fps_mode cfr -r 30 \
+  -c:v h264_nvenc -preset p5 -rc vbr -cq 20 -b:v 0 -maxrate 25M -bufsize 50M \
+  -pix_fmt yuv420p -af "volume=...,alimiter=..." -c:a aac -b:a 192k \
+  -movflags +faststart take.mp4
 ```
 
-`-fps_mode cfr` **duplica cuadros en los huecos en vez de comprimir el tiempo**,
-que es lo unico que sirve para sincronizar: la duracion real se conserva. Los
-segundos flojos se ven congelados, pero en sync. El audio va con `-c:a copy`, sin
-tocar: la sincronizacion se arregla del lado del video.
+`-fps_mode cfr` **duplicates frames in the gaps instead of compressing time**,
+which is the only thing that works for syncing: the real duration is preserved.
+The weak seconds look frozen, but in sync.
 
-Verificado sobre la peor toma (declaraba 60, tenia 22,46): sale con
-`r_frame_rate = avg_frame_rate = 30/1`, **un solo intervalo** entre cuadros
-(33,33 ms), 30 fps en cada uno de los 70 segundos, y 70,73 s de duracion contra
-los 70,68 originales.
+Verified on the worst take (declared 60, had 22.46): it comes out with
+`r_frame_rate = avg_frame_rate = 30/1`, **a single frame interval** (33.33 ms),
+30 fps in each of the 70 seconds, and 70.73 s of duration against the original
+70.68.
 
-Se intenta en orden, y el primero que sale bien gana:
+Attempts run in order, and the first one that succeeds wins:
 
-1. **CFR con `h264_nvenc`** si el binario lo trae. Medido: **13,3 s** para una
-   toma de 152 s en 1080p.
-2. **CFR con `libx264`** (`veryfast`, `crf 18`), por si no hay placa NVIDIA.
-   `-encoders` dice que ffmpeg trae nvenc compilado, no que haya GPU, asi que el
-   respaldo es por fallo en tiempo de ejecucion, no por deteccion previa.
-3. **Remux por copia** (`-c copy`, 0,14 s): arregla el envoltorio pero deja el
-   archivo VFR. Peor, pero infinitamente mejor que perder la toma. El aviso del
-   monitor lo dice en rojo: *"Guardado VFR"*.
-4. El crudo tal cual, avisando.
+1. **CFR with `h264_nvenc`** if the binary has it. Measured: **13.3 s** for a
+   152 s take at 1080p.
+2. **CFR with `libx264`** (`veryfast`, `crf 18`), in case there's no NVIDIA GPU.
+   `-encoders` says ffmpeg was built with nvenc, not that there is a GPU, so the
+   fallback is triggered by a runtime failure, not by detection.
+3. **Remux by copy** (`-c:v copy`, under a second): fixes the container but
+   leaves the file VFR. Worse, but infinitely better than losing the take. The
+   monitor flags it in red: *"Guardado VFR"*.
+4. The raw file as is, with a warning.
 
-`FPS_SALIDA` cambia los 30 fps de destino. `CFR=0` vuelve al remux por copia de
-antes, para material que no se va a editar.
+`FPS_SALIDA` changes the 30 fps target. `CFR=0` goes back to remux by copy, for
+footage that won't be edited.
 
-Si el navegador cayo al respaldo WebM (VP8/VP9), ahi el paso 3 no existe: Resolve
-tampoco lee WebM y VP9 no entra en un MP4 copiando.
+If the browser fell back to WebM (VP8/VP9), step 3 doesn't exist: Resolve
+doesn't read WebM either, and VP9 can't be copied into an MP4.
 
-**Hace falta ffmpeg en el PATH** (`winget install Gyan.FFmpeg`, o la variable
-`FFMPEG` apuntando al binario). Si no esta, el servidor avisa al arrancar y en
-cada toma, y guarda el crudo sin convertir antes que perderla.
+**ffmpeg must be on the `PATH`** (`winget install Gyan.FFmpeg`, or the `FFMPEG`
+variable pointing to the binary). If it's missing, the server warns at startup
+and on every take, and keeps the raw file rather than losing it.
 
-## Pasar archivos entre el telefono y la PC
+### Why recording doesn't start as soon as video arrives
 
-`https://<IP-DE-LA-PC>:3000/transferir.html` (tambien desde el boton
-**Transferencias** del monitor). Es una carpeta compartida, `transferencias/`,
-y **va para los dos lados**: lo que sube el telefono aparece ahi, y lo que se
-deja ahi desde la PC aparece en la lista del telefono para bajar. En la PC
-tambien se pueden arrastrar archivos a la pagina.
+WebRTC starts low and raises the bitrate gradually. Recording during that ramp
+is what introduced the gaps that later throw the take out of sync in the editor
+(see *The timing: VFR* above).
 
-Reemplaza el viaje por WeTransfer, que es lento no por el archivo sino por el
-camino: sube el video entero a un servidor en internet y despues lo baja. Aca
-los bytes van directo de un aparato al otro por la red local, **sin recomprimir
-nada** (medido: mismo SHA-256 en las dos puntas).
+So the monitor doesn't start the take until it sees **3 consecutive seconds
+above 24 fps** in `getStats()`'s `framesPerSecond`. The threshold cleanly
+separates what was measured: the steady part never went below 28 fps and the
+ramp never went above 16. While waiting, the screen says so, with the fps it is
+seeing.
 
-**Lo que si puede tocar la calidad pasa antes de que el archivo salga del
-telefono**: en *Ajustes -> Fotos -> Transferir a Mac o PC*, la opcion
-"Automatico" convierte los HEVC a H.264 al exportarlos. Hay que ponerlo en
-**"Conservar originales"**; desde el servidor no hay forma de impedirlo.
+- **Measurement always runs**, even with the stats panel hidden. Otherwise,
+  starting the recording would depend on someone pressing `S`.
+- **Closing a take with a thumb waits for nothing.** By then the history is
+  full of good samples, so the next take starts in the same instant and no
+  footage is lost.
 
-Detalles que importan:
+If after **10 seconds** the video still hasn't stabilized, it starts anyway and
+logs why: a take with the ramp in it is better than no take.
 
-- El archivo viaja como **cuerpo crudo del POST**, con el nombre en un header, y
-  no como `multipart/form-data`: asi se puede mandar a disco a medida que llega
-  y un video de varios GB nunca entra en memoria.
-- Se usa `XMLHttpRequest` y no `fetch` porque **fetch no informa el progreso de
-  subida**, y sin barra un video grande parece colgado.
-- `server.requestTimeout = 0`: Node corta solo cualquier pedido que pase de 5
-  minutos, y una subida grande los pasa de largo.
-- Se escribe en `.subiendo-*` y se renombra al terminar, para que una subida
-  cortada no deje un archivo truncado con pinta de sano.
-- La pagina pide **wake lock** mientras sube: si la pantalla del iPhone se
-  bloquea, iOS suspende Safari y corta la subida.
-- El nombre que manda el telefono nunca se usa tal cual (`../../` en el nombre
-  dejaria escribir fuera de la carpeta).
+## Audio
 
-## Por que HTTPS y no HTTP
+The phone captures the microphone with the three voice-processing options
+**turned off**: `echoCancellation`, `noiseSuppression` and `autoGainControl`.
+iOS enables them by default; they're fine for a call, but on an instrument they
+eat the attack transients and pump the volume between phrases.
 
-Safari en iOS entrega `getUserMedia` unicamente en un *secure context*: `https`,
-o `localhost`. **Una IP de LAN sobre `http://` no cuenta** — `navigator.mediaDevices`
-viene `undefined` y la pagina no pide la camara nunca.
+The cost is that the raw iPhone mic comes in very quiet. Measured on a real
+take: **-47.9 LUFS** integrated with peaks at -27.1 dBFS, about 34 dB below
+what a published video sounds like.
 
-Por eso `server.js` genera un certificado autofirmado en el primer arranque
-(paquete `selfsigned`, JS puro) y lo deja en `certs/`. El `subjectAltName`
-incluye `localhost`, `127.0.0.1` y **cada IP de LAN de la PC**: si el
-certificado no nombra la IP por la que entras, Safari lo rechaza sin ofrecer
-siquiera el "visitar de todas formas".
+So on save, `remux.js` measures the take's loudness and applies **a single
+fixed gain** for the whole take to bring it to **-14 LUFS** (what YouTube,
+Instagram and TikTok normalize to), followed by a limiter that only catches the
+peaks that would go above -1 dBFS. It is not an AGC: the gain doesn't move, so
+it doesn't pump, and timing is untouched.
 
-Si cambias de red o el DHCP te da otra IP, detecta que el certificado ya no la
-cubre y lo regenera solo.
+| | before | after |
+|---|---|---|
+| loudness | -47.9 LUFS | -14.4 LUFS |
+| peak | -27.1 dBFS | -0.9 dBFS |
+| loudness range | 6.1 LU | 5.0 LU |
 
-Cada dispositivo avisa una vez que el certificado no es de confianza:
+A compressor in front of the limiter was also tried and discarded: it squashed
+the dynamics (LRA 6.1 → 2.7) without reaching the target.
 
-- Chrome/Edge: *Configuracion avanzada -> Continuar a ...*
-- Safari: *Mostrar detalles -> visitar este sitio web*
+- `LUFS_OBJETIVO` changes the target, and `NORMALIZAR=0` leaves the audio
+  untouched.
+- Gain is capped at +40 dB (above that you are raising room noise, not the
+  instrument), and a silent take (below -70 LUFS) is left alone.
 
-## Cuando se corta
+Moving the phone closer to the instrument still helps more than anything in
+code: the gain raises the room noise along with the signal.
 
-Se reconecta solo; no hay que recargar nada a mano.
+## Moving files between the phone and the PC
 
-La causa mas comun **no es la WiFi**: en iOS alcanza con que la pantalla se
-bloquee o Safari pase a segundo plano para que el sistema suspenda la pagina y
-mate la camara. Desde el otro lado se ve identico a una caida de red. Por eso
-la pagina del telefono pide *wake lock* de pantalla mientras transmite, y lo
-vuelve a pedir al reaparecer (iOS lo suelta al pasar a segundo plano y no lo
-devuelve por su cuenta).
+`https://<PC-IP>:3000/transferir.html` (also from the **Transferencias** button
+on the monitor and **Archivos** on the phone). It's a shared folder,
+`transferencias/`, and **it works both ways**: whatever the phone uploads shows
+up there, and whatever you drop there on the PC shows up in the phone's list
+for download. On the PC you can also drag files onto the page.
 
-Lo demas que sostiene la conexion:
+It replaces the WeTransfer round trip, which is slow not because of the file
+but because of the path: it uploads the whole video to a server on the internet
+and then downloads it. Here the bytes go straight from one device to the other
+over the local network, **without recompressing anything** (measured on 313 MB:
+same SHA-256 on both ends).
 
-- WebSocket con reintento de espera geometrica (500 ms a 5 s) y reconexion
-  inmediata al volver de `visibilitychange`, `online` y `pageshow`.
-- La camara se pide **una sola vez** y sobrevive a las caidas: al reconectar se
-  rearma la `RTCPeerConnection` con el stream que ya estaba, sin volver a pedir
-  permiso.
-- El servidor avisa a cada lado cuando el otro entra o sale, para que el
-  telefono sepa cuando volver a ofrecer. Sin eso el monitor espera para siempre
-  una oferta que nadie va a mandar.
-- Ping/pong cada 15 s: un iPhone dormido dejaba un socket fantasma que el
-  servidor seguia creyendo vivo.
+**What can affect quality happens before the file leaves the phone**: under
+*Settings → Photos → Transfer to Mac or PC*, the "Automatic" option converts
+HEVC to H.264 on export. Set it to **"Keep Originals"**; the server has no way
+to prevent it.
 
-El servidor registra cada pedido, cada apertura y cierre de socket con su
-codigo y motivo, y los sockets que no contestan el ping. Si algo se corta, la
-consola dice que paso.
+Details that matter:
+
+- The file travels as the **raw POST body**, with the name in a header, not as
+  `multipart/form-data`: that way it can be streamed to disk as it arrives and a
+  multi-GB video never sits in memory.
+- `XMLHttpRequest` is used instead of `fetch` because **fetch doesn't report
+  upload progress**, and without a progress bar a large video looks stuck.
+- `server.requestTimeout = 0`: Node cuts any request longer than 5 minutes by
+  default, and a large upload goes well past that.
+- Uploads are written to `.subiendo-*` and renamed when done, so an interrupted
+  upload doesn't leave a truncated file that looks healthy.
+- The page requests a **wake lock** while uploading: if the iPhone screen locks,
+  iOS suspends Safari and kills the upload.
+- The name sent by the phone is never used as is (`../../` in the name would
+  allow writing outside the folder).
+
+## Why HTTPS and not HTTP
+
+Safari on iOS only provides `getUserMedia` in a *secure context*: `https` or
+`localhost`. **A LAN IP over `http://` doesn't count**: `navigator.mediaDevices`
+is `undefined` and the page never even asks for the camera.
+
+That's why `server.js` generates a self-signed certificate on first start
+(`selfsigned` package, pure JS) and stores it in `certs/`. The
+`subjectAltName` includes `localhost`, `127.0.0.1` and **every LAN IP of the
+PC**: if the certificate doesn't name the IP you connect through, Safari rejects
+it without even offering "visit anyway".
+
+If you change networks or DHCP gives you another IP, the server detects that the
+certificate no longer covers it and regenerates it.
+
+Each device warns once that the certificate isn't trusted:
+
+- Chrome/Edge: *Advanced → Continue to ...*
+- Safari: *Show Details → visit this website*
+
+## When the connection drops
+
+It reconnects on its own; nothing needs to be reloaded by hand.
+
+The most common cause **is not the WiFi**: on iOS it's enough for the screen to
+lock or Safari to go to the background for the system to suspend the page and
+kill the camera. From the other side it looks identical to a network drop. So
+the phone page requests a screen *wake lock* while streaming, and requests it
+again when it comes back (iOS releases it in the background and doesn't give it
+back on its own).
+
+What else keeps the connection alive:
+
+- WebSocket with exponential-backoff retries (500 ms to 5 s) and immediate
+  reconnect on `visibilitychange`, `online` and `pageshow`.
+- The camera is requested **only once** and survives drops: on reconnect the
+  `RTCPeerConnection` is rebuilt with the existing stream, without asking for
+  permission again.
+- The server tells each side when the other joins or leaves, so the phone knows
+  when to offer again. Without it the monitor waits forever for an offer nobody
+  is going to send.
+- Ping/pong every 15 s: a sleeping iPhone used to leave a ghost socket the
+  server still believed was alive.
+
+The server logs every request, every socket open and close with its code and
+reason, and sockets that don't answer the ping. Browser logs are forwarded to
+the server too, each line tagged with the page's version, so a page that wasn't
+reloaded after an update is flagged as stale. If something drops, the console
+says what happened.
 
 ## Firewall
 
-Si el iPhone no llega a la pagina, casi siempre es el Firewall de Windows: en
-el perfil **publico** bloquea las conexiones entrantes. Dos salidas, cualquiera
-sirve, **las dos necesitan PowerShell como administrador**:
+If the iPhone can't reach the page, it's almost always the Windows Firewall: on
+the **public** network profile it blocks incoming connections. Two ways out,
+either works, **both need PowerShell as administrator**:
 
 ```powershell
-# A) marcar la red como privada (lo mas limpio)
-Set-NetConnectionProfile -Name "<nombre de tu red>" -NetworkCategory Private
+# A) mark the network as private (cleanest)
+Set-NetConnectionProfile -Name "<your network name>" -NetworkCategory Private
 
-# B) o abrir solo el puerto 3000
+# B) or open only port 3000
 New-NetFirewallRule -DisplayName "iphone-monitor 3000" -Direction Inbound `
   -Protocol TCP -LocalPort 3000 -Action Allow -Profile Any
 ```
 
-## Calidad
+## Quality
 
-Con `S` en la pagina del monitor se abre el panel de estadisticas: resolucion y
-fps reales que llegan, bitrate, codec negociado, perdida, jitter y cuadros
-descartados. Son los numeros de la sesion, no lo que pedimos en las
+Press `S` on the monitor page to open the stats panel: the real resolution and
+fps coming in, bitrate, negotiated codec, packet loss, jitter and dropped
+frames. These are the session's numbers, not what was requested in the
 constraints.
 
-El emisor pide `maxBitrate` de 12 Mbps y `degradationPreference:
-maintain-resolution`. El default de WebRTC esta pensado para internet (un par
-de Mbps) y ante congestion prefiere bajar resolucion; mirando encuadre uno
-quiere lo contrario.
+The sender requests a `maxBitrate` of 12 Mbps and `degradationPreference:
+maintain-resolution`. WebRTC's default is tuned for the internet (a couple of
+Mbps) and under congestion it prefers lowering the resolution; when you are
+checking your framing you want the opposite.
 
-La captura se pide en 1080p30. Para elegir una lente trasera concreta (ultra
-wide / tele) hay que usar `enumerateDevices()` y pasar el `deviceId` exacto en
-vez de `facingMode`.
+Capture is requested at 1080p30. To pick a specific rear lens (ultra wide /
+tele) you'd use `enumerateDevices()` and pass the exact `deviceId` instead of
+`facingMode`.
 
-### Por que no se graba apenas llega el video
+## Security
 
-WebRTC arranca bajo y sube el bitrate de a poco. Grabar durante esa rampa es lo
-que metia los huecos que despues descuadran la toma en el editor (ver *El ritmo:
-VFR*, mas arriba): medido, hueco de 2.500 ms en el segundo 3 y cero cuadros en el
-segundo 4.
+This is meant for a **trusted home network**. There is no authentication:
+anyone on the same LAN who can reach port 3000 can watch the stream, and read,
+upload or delete files in the shared folder. Don't run it on public or shared
+WiFi, and don't expose the port to the internet.
 
-Por eso el monitor no arranca la toma hasta tener **3 segundos seguidos por
-encima de 24 fps** en el `framesPerSecond` de `getStats()`. El umbral separa
-limpio lo medido: el tramo estable nunca bajo de 28 fps y la rampa nunca paso de
-16. Mientras espera lo dice en pantalla, con los fps que va viendo.
-
-Dos detalles que no son obvios:
-
-- **La medicion corre siempre**, aunque el panel de estadisticas este escondido.
-  Si solo midiera con el panel abierto, el arranque de la grabacion dependeria de
-  si alguien aprieta `S`.
-- **Cerrar una toma con el pulgar no espera nada.** A esa altura el historial ya
-  esta lleno de muestras buenas, asi que la siguiente arranca en el mismo
-  instante y no se pierde material. Verificado punta a punta: video a las
-  `20:50:35`, primera toma a las `20:50:38` (3 s), pulgar arriba a las `20:50:47`
-  y la siguiente ya corriendo a las `20:50:48`.
-
-Si a los **10 segundos** el video todavia no se estabilizo, arranca igual y deja
-el motivo en el log: mejor una toma con la rampa adentro que ninguna.
-
-## Estructura
+## Project layout
 
 ```
-server.js                  estaticos + signaling + certificado + grabaciones
-scripts/bajar-modelos.mjs  baja el modelo de gestos (URL versionada)
+server.js                  static files + signaling + certificate + recordings
+scripts/bajar-modelos.mjs  downloads the gesture model (pinned URL)
 shared/config.js           ICE servers
-shared/socket.js           WebSocket que se reconecta solo + wake lock
-public/phone.html|js       pagina del iPhone (emisor)
-public/monitor.html|js     pagina de la PC (receptor, gestos, grabacion)
-public/gestos.js           MediaPipe Gesture Recognizer
-public/grabacion.js        MediaRecorder -> WebSocket -> disco
-public/transferir.*        pasar archivos entre el telefono y la PC
-remux.js                   cierra la toma como MP4 editable y CFR (ffmpeg)
-transferencias.js          carpeta compartida (subida/bajada por la LAN)
-modelos/                   modelo .task (gitignoreado)
-grabaciones/               las tomas (gitignoreado)
-transferencias/            la carpeta compartida (gitignoreada)
+shared/socket.js           self-reconnecting WebSocket + wake lock
+shared/log.js              forwards browser logs to the server console
+public/phone.html|js       iPhone page (sender)
+public/monitor.html|js     PC page (receiver, gestures, recording)
+public/gestos.js           MediaPipe Gesture Recognizer + geometric thumb check
+public/grabacion.js        MediaRecorder -> WebSocket -> disk
+public/transferir.*        moving files between the phone and the PC
+remux.js                   finishes the take as an editable CFR MP4 with normalized audio (ffmpeg)
+transferencias.js          shared folder (upload/download over the LAN)
+modelos/                   .task model (gitignored)
+grabaciones/               the takes (gitignored)
+transferencias/            the shared folder (gitignored)
 ```
 
-El servidor sirve `/shared`, `/vendor` (MediaPipe desde `node_modules`, no
-desde un CDN: anda sin internet y la version queda clavada por
-`package-lock`) y `/modelos`.
+The server serves `/shared`, `/vendor` (MediaPipe from `node_modules`, not from
+a CDN: it works offline and the version is pinned by `package-lock`) and
+`/modelos`.
 
-## Problemas comunes
+The code and its comments are in Spanish; the UI is in Spanish too.
 
-- **`OverconstrainedError`**: la lente trasera no da esa combinacion de
-  restricciones. `phone.js` ya reintenta solo, aflojando la resolucion.
-- **El preview del telefono queda negro**: tocá el cartel de estado y muestra
-  `videoWidth`, `readyState`, `paused` y el estado del socket.
-- **No conecta**: ver la seccion de Firewall.
-- **`npm audit`** marca 2 vulnerabilidades moderadas en `qs`, que entra por
-  Express 4. Son DoS via query strings raras; esto sirve archivos estaticos en
-  la LAN. Se limpia migrando a Express 5.
+## Troubleshooting
 
-## Alcance
+- **`OverconstrainedError`**: the rear lens can't satisfy that combination of
+  constraints. `phone.js` retries automatically with a looser resolution.
+- **The phone preview stays black**: tap the status label and it shows
+  `videoWidth`, `readyState`, `paused` and the socket state.
+- **It doesn't connect**: see the Firewall section.
+- **`npm audit`** reports 2 moderate vulnerabilities in `qs`, pulled in by
+  Express 4. They are DoS via unusual query strings; this serves static files
+  on the LAN. Migrating to Express 5 clears them.
 
-Esto monitorea y graba, pero no juzga el encuadre: no hay silueta, plantilla ni
-modelo de pose. Eso es otro proyecto (GuitarCam).
+## Scope
+
+This monitors and records, but doesn't judge your framing: there is no
+silhouette, template or pose model.
