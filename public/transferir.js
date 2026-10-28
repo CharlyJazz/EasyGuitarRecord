@@ -23,6 +23,23 @@ function duracion(seg) {
   return m ? `${m} min ${s} s` : `${s} s`;
 }
 
+// "hace 2 minutos", "ayer", "hace 3 dias". Intl.RelativeTimeFormat ya viene en
+// el navegador (Safari 14+) y hace lo mismo que timeago.js, sin dependencia.
+const relativo = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+const UNIDADES = [
+  ["year", 365 * 864e5], ["month", 30 * 864e5], ["week", 7 * 864e5],
+  ["day", 864e5], ["hour", 36e5], ["minute", 6e4],
+];
+
+function hace(fecha) {
+  const ms = fecha - Date.now();
+  if (Math.abs(ms) < 45e3) return "recién";
+  for (const [unidad, largo] of UNIDADES) {
+    if (Math.abs(ms) >= largo) return relativo.format(Math.round(ms / largo), unidad);
+  }
+  return relativo.format(Math.round(ms / 6e4), "minute");
+}
+
 // --------------------------------------------------------------- wake lock
 // iOS suspende la pagina cuando la pantalla se bloquea, y ahi se corta la
 // subida a medio camino. Mientras haya cola, se pide mantener la pantalla
@@ -161,8 +178,11 @@ async function refrescar() {
       `  <button class="chico borrar">Borrar</button>` +
       `</div>`;
     tarjeta.querySelector(".nombre").textContent = a.nombre;
-    tarjeta.querySelector(".meta").textContent =
-      `${tamano(a.bytes)} - ${new Date(a.fecha).toLocaleString()}`;
+    // Lista cada 5 s, asi que el "hace X" se actualiza solo; la fecha exacta
+    // queda en el tooltip.
+    const meta = tarjeta.querySelector(".meta");
+    meta.textContent = `${tamano(a.bytes)} - ${hace(a.fecha)}`;
+    meta.title = new Date(a.fecha).toLocaleString();
 
     const url = `/api/transferencias/${encodeURIComponent(a.nombre)}`;
     tarjeta.querySelector("a.chico").href = url;
