@@ -479,6 +479,94 @@ function cuando(nombre) {
   return m ? `${m[2]}/${m[1]} ${m[3]}:${m[4]}:${m[5]}` : nombre;
 }
 
+// "hace 2 minutos", "ayer". El refresco de cada 15 s lo mantiene al dia.
+const relativo = new Intl.RelativeTimeFormat("es", { numeric: "auto" });
+const ESCALONES = [[60, "second"], [60, "minute"], [24, "hour"], [7, "day"], [4.35, "week"], [12, "month"], [Infinity, "year"]];
+
+function haceCuanto(ms) {
+  let valor = (ms - Date.now()) / 1000;
+  if (Math.abs(valor) < 45) return "recien";
+  for (const [tope, unidad] of ESCALONES) {
+    if (Math.abs(valor) < tope) return relativo.format(Math.round(valor), unidad);
+    valor /= tope;
+  }
+}
+
+// Renombrar pone una etiqueta (acordes, lick...) DESPUES de la fecha:
+// toma-2026-09-12_16-28-31-lick.mp4. La fecha se queda porque ordena la
+// galeria, evita choques entre dos "lick" y es la hora con la que se junta
+// la toma con su audio de FL Studio.
+const PARTES_DE_TOMA = /^(toma-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:-(.*))?(\.[^.]+)$/;
+
+function etiquetaDe(nombre) {
+  const m = nombre.match(PARTES_DE_TOMA);
+  return m ? m[2] || "" : nombre.replace(/\.[^.]+$/, "");
+}
+
+function nombreConEtiqueta(nombre, etiqueta) {
+  const limpia = etiqueta.replace(/[<>:"\/\\|?*\x00-\x1f]/g, "").replace(/\s+/g, " ").trim();
+  const m = nombre.match(PARTES_DE_TOMA);
+  if (m) return limpia ? `${m[1]}-${limpia}${m[3]}` : `${m[1]}${m[3]}`;
+  // Un video que no salio de aca: no hay fecha que conservar.
+  return limpia ? `${limpia}${nombre.match(/\.[^.]+$/)[0]}` : nombre;
+}
+
+async function renombrarToma(nombre, etiqueta) {
+  const nuevo = nombreConEtiqueta(nombre, etiqueta);
+  if (nuevo === nombre) return;
+  try {
+    const respuesta = await fetch(`/api/grabaciones/${encodeURIComponent(nombre)}/renombrar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre: nuevo }),
+    });
+    if (!respuesta.ok) {
+      const detalle = await respuesta.json().catch(() => ({}));
+      throw new Error(detalle.error || respuesta.status);
+    }
+    registrar(`galeria: ${nombre} -> ${nuevo}`);
+  } catch (err) {
+    avisar(`No se pudo renombrar: ${err.message}`, "malo");
+    registrar(`galeria: fallo el renombrado de ${nombre}: ${err.message}`);
+  }
+}
+
+// Mientras hay un menu abierto o un nombre a medio escribir, el refresco
+// periodico no reconstruye la grilla: se llevaria puesto lo que uno esta haciendo.
+let galeriaOcupada = false;
+
+function cerrarMenus() {
+  for (const menu of galeriaGrid.querySelectorAll(".menu.abierto")) menu.classList.remove("abierto");
+  galeriaOcupada = false;
+}
+document.addEventListener("click", cerrarMenus);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarMenus(); });
+
+function editarNombre(toma, titulo) {
+  const entrada = document.createElement("input");
+  entrada.value = etiquetaDe(toma.nombre);
+  entrada.placeholder = "acordes, lick...";
+  entrada.addEventListener("click", (e) => e.stopPropagation());
+  titulo.replaceWith(entrada);
+  entrada.focus();
+  entrada.select();
+  galeriaOcupada = true;
+
+  let terminado = false;
+  const terminar = async (guardar) => {
+    if (terminado) return;
+    terminado = true;
+    if (guardar) await renombrarToma(toma.nombre, entrada.value);
+    galeriaOcupada = false;
+    refrescarGaleria();
+  };
+  entrada.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") terminar(true);
+    else if (e.key === "Escape") terminar(false);
+  });
+  entrada.addEventListener("blur", () => terminar(true));
+}
+
 function abrirToma(nombre) {
   // Ventana propia y no una pestaña: la idea es mirarla al lado del monitor.
   window.open(`/grabaciones/${encodeURIComponent(nombre)}`, nombre, "width=900,height=640");
@@ -506,6 +594,7 @@ async function borrarToma(nombre) {
 }
 
 async function refrescarGaleria() {
+  if (galeriaOcupada) return;
   let tomas;
   try {
     const respuesta = await fetch("/api/grabaciones");
@@ -541,14 +630,20 @@ async function refrescarGaleria() {
 
     const pie = document.createElement("div");
     pie.className = "pie";
+    // Arriba la etiqueta si tiene (si no, la fecha de la toma); abajo hace
+    // cuanto y el peso. La fecha exacta queda en el tooltip.
+    const etiqueta = etiquetaDe(toma.nombre);
     const titulo = document.createElement("b");
-    titulo.textContent = cuando(toma.nombre);
+    titulo.textContent = etiqueta || cuando(toma.nombre);
     const detalle = document.createElement("span");
-    detalle.textContent = tamaño(toma.bytes);
+    detalle.textContent = `${haceCuanto(toma.modificado)} · ${tamaño(toma.bytes)}`;
+    tarjeta.title = `${toma.nombre}\n${new Date(toma.modificado).toLocaleString()}`;
     pie.append(titulo, detalle);
 
-    const acciones = document.createElement("div");
-    acciones.className = "acciones";
+    // Las acciones van en un menu detras del engranaje.
+    const menu = document.createElement("div");
+    menu.className = "menu";
+    menu.addEventListener("click", (e) => e.stopPropagation());
 
     // Descargar es un ancla comun con download: el navegador lo resuelve solo
     // y respeta el nombre del archivo.
@@ -557,19 +652,66 @@ async function refrescarGaleria() {
     bajar.download = toma.nombre;
     bajar.textContent = "⬇ Guardar";
     bajar.title = "Descargar una copia";
-    bajar.addEventListener("click", (e) => e.stopPropagation());
+    bajar.addEventListener("click", cerrarMenus);
+
+    const renombrar = document.createElement("button");
+    renombrar.textContent = "✎ Renombrar";
+    renombrar.title = "Ponerle una etiqueta: acordes, lick...";
+    renombrar.addEventListener("click", () => {
+      cerrarMenus();
+      editarNombre(toma, titulo);
+    });
+
+    const carpeta = document.createElement("button");
+    carpeta.textContent = "📁 Mostrar en carpeta";
+    carpeta.title = "Abrir el Explorador con la toma seleccionada";
+    carpeta.addEventListener("click", async () => {
+      cerrarMenus();
+      try {
+        const respuesta = await fetch(`/api/grabaciones/${encodeURIComponent(toma.nombre)}/mostrar`, {
+          method: "POST",
+        });
+        if (!respuesta.ok) {
+          const detalle = await respuesta.json().catch(() => ({}));
+          throw new Error(detalle.error || respuesta.status);
+        }
+      } catch (err) {
+        avisar(`No se pudo abrir la carpeta: ${err.message}`, "malo");
+      }
+    });
 
     const borrar = document.createElement("button");
     borrar.className = "borrar";
     borrar.textContent = "🗑 Borrar";
     borrar.title = "Mover a la papelera";
-    borrar.addEventListener("click", (e) => {
-      e.stopPropagation();   // si no, tambien abriria la ventana de la toma
+    borrar.addEventListener("click", () => {
+      cerrarMenus();
       borrarToma(toma.nombre);
     });
 
-    acciones.append(bajar, borrar);
-    tarjeta.append(mini, pie, acciones);
+    menu.append(bajar, renombrar, carpeta, borrar);
+
+    const acciones = document.createElement("div");
+    acciones.className = "acciones";
+    const opciones = document.createElement("button");
+    opciones.textContent = "⚙";
+    opciones.title = "Guardar, renombrar, mostrar en carpeta o borrar";
+    opciones.addEventListener("click", (e) => {
+      e.stopPropagation();   // si no, tambien abriria la ventana de la toma
+      const yaAbierto = menu.classList.contains("abierto");
+      cerrarMenus();
+      if (!yaAbierto) {
+        // ~135px de menu: si no entran debajo de la fila, se abre para arriba.
+        const fila = tarjeta.getBoundingClientRect();
+        const lista = galeriaGrid.getBoundingClientRect();
+        menu.classList.toggle("arriba", fila.bottom + 140 > lista.bottom);
+        menu.classList.add("abierto");
+        galeriaOcupada = true;
+      }
+    });
+    acciones.append(opciones);
+
+    tarjeta.append(mini, pie, acciones, menu);
     tarjeta.addEventListener("click", () => abrirToma(toma.nombre));
     galeriaGrid.append(tarjeta);
   }

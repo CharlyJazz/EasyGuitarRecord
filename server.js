@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer } from "https";
 import { WebSocketServer } from "ws";
+import { spawn } from "child_process";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
@@ -135,16 +136,27 @@ app.post("/api/log", express.json({ limit: "1mb" }), (req, res) => {
   res.sendStatus(204);
 });
 
-// Solo los nombres que genera este servidor. Sin esto, un ".." en la ruta
-// dejaria borrar cualquier archivo de la maquina.
-const NOMBRE_DE_TOMA = /^toma-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.(mp4|webm)$/;
+// Un video suelto en la carpeta de grabaciones. Lo que importa es que no
+// pueda salir de la carpeta (sin esto, un ".." en la ruta dejaria borrar
+// cualquier archivo de la maquina), no que tenga el formato exacto de nombre
+// que pone el servidor: antes se exigia toma-AAAA-MM-DD_HH-MM-SS.mp4 y una
+// toma renombrada a mano (toma-...-volumen.mp4) aparecia en la galeria pero
+// no se podia borrar. La galeria y el borrado usan esta misma regla, asi lo
+// que se ve siempre se puede borrar.
+function esVideoDeLaCarpeta(nombre) {
+  return (
+    nombre === path.basename(nombre) &&
+    !nombre.startsWith(".") &&
+    /\.(mp4|webm|mov)$/i.test(nombre)
+  );
+}
 const PAPELERA = path.join(GRABACIONES, ".papelera");
 
 // Borrar es mover a la papelera, no destruir. Una toma buena que se va por un
 // clic de mas no se recupera de ninguna otra forma.
 app.delete("/api/grabaciones/:nombre", (req, res) => {
   const nombre = req.params.nombre;
-  if (!NOMBRE_DE_TOMA.test(nombre)) {
+  if (!esVideoDeLaCarpeta(nombre)) {
     return res.status(400).json({ error: "nombre invalido" });
   }
 
@@ -165,13 +177,71 @@ app.delete("/api/grabaciones/:nombre", (req, res) => {
   res.json({ ok: true, papelera: path.basename(destino) });
 });
 
+// Renombrar es para etiquetar la toma (acordes, lick...). Mismas reglas que el
+// borrado para los dos nombres, y la extension no cambia: renombrar no
+// convierte nada.
+app.post("/api/grabaciones/:nombre/renombrar", express.json(), (req, res) => {
+  const nombre = req.params.nombre;
+  const nuevo = String(req.body?.nombre || "");
+  if (!esVideoDeLaCarpeta(nombre) || !esVideoDeLaCarpeta(nuevo) || /[<>:"\/\\|?*\x00-\x1f]/.test(nuevo)) {
+    return res.status(400).json({ error: "nombre invalido" });
+  }
+  if (path.extname(nombre).toLowerCase() !== path.extname(nuevo).toLowerCase()) {
+    return res.status(400).json({ error: "no se puede cambiar la extension" });
+  }
+
+  const origenArchivo = path.join(GRABACIONES, nombre);
+  const destino = path.join(GRABACIONES, nuevo);
+  if (!fs.existsSync(origenArchivo)) {
+    return res.status(404).json({ error: "no existe" });
+  }
+  // En Windows "Lick.mp4" y "lick.mp4" son el mismo archivo: cambiar solo
+  // mayusculas no es pisar a otro.
+  if (fs.existsSync(destino) && nombre.toLowerCase() !== nuevo.toLowerCase()) {
+    return res.status(409).json({ error: "ya hay una toma con ese nombre" });
+  }
+
+  fs.renameSync(origenArchivo, destino);
+  log("api", `renombrada: ${nombre} -> ${nuevo}`);
+  res.json({ ok: true, nombre: nuevo });
+});
+
+// Abre el Explorador en la carpeta de grabaciones con la toma seleccionada.
+// Lo hace el servidor porque el navegador no puede abrir carpetas locales; el
+// monitor corre en esta misma PC, asi que la ventana aparece delante de uno.
+app.post("/api/grabaciones/:nombre/mostrar", (req, res) => {
+  const nombre = req.params.nombre;
+  if (!esVideoDeLaCarpeta(nombre)) {
+    return res.status(400).json({ error: "nombre invalido" });
+  }
+  const archivo = path.join(GRABACIONES, nombre);
+  if (!fs.existsSync(archivo)) {
+    return res.status(404).json({ error: "no existe" });
+  }
+  // Argumentos literales: explorer quiere /select,"ruta con espacios" tal
+  // cual, y el escapado normal de Node le pone comillas a todo el argumento.
+  // explorer.exe sale con codigo 1 aunque haya andado: no se mira.
+  spawn("explorer.exe", [`/select,"${archivo}"`], {
+    windowsVerbatimArguments: true,
+    detached: true,
+    stdio: "ignore",
+  }).unref();
+  log("api", `mostrar en carpeta: ${nombre}`);
+  res.json({ ok: true });
+});
+
 app.get("/api/grabaciones", (req, res) => {
   const archivos = fs
     .readdirSync(GRABACIONES)
-    .filter((n) => !n.startsWith("."))
+    .filter(esVideoDeLaCarpeta)
     .sort()
     .reverse()
-    .map((n) => ({ nombre: n, bytes: fs.statSync(path.join(GRABACIONES, n)).size }));
+    .map((n) => {
+      const datos = fs.statSync(path.join(GRABACIONES, n));
+      // mtime y no la fecha del nombre: un video copiado a mano no la trae, y
+      // renombrar no la toca.
+      return { nombre: n, bytes: datos.size, modificado: datos.mtimeMs };
+    });
   res.json(archivos);
 });
 
