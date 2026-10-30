@@ -266,6 +266,32 @@ the dynamics (LRA 6.1 → 2.7) without reaching the target.
 Moving the phone closer to the instrument still helps more than anything in
 code: the gain raises the room noise along with the signal.
 
+## Pairing a take with its FL Studio audio
+
+After recording, the video take and the audio take from FL Studio are copied
+side by side into one folder per day, named by the video's time so they stay
+together:
+
+```
+D:\Tomas - TIKTOKIG\17 de octubre de 2026\
+    17h43 - test primera prueba - video.mp4
+    17h43 - test primera prueba - audio.wav
+```
+
+In Claude Code, pass both paths (the video can be the monitor URL) and say
+"agrupa la toma" — the `agrupar-toma-tiktok` skill (in `.claude/skills/`) does
+the rest. Or run the script directly from the repo folder:
+
+```powershell
+& ".\.claude\skills\agrupar-toma-tiktok\agrupar.ps1" `
+  -Video "https://localhost:3000/grabaciones/toma-2026-10-17_17-43-18.mp4" `
+  -Audio "D:\...\untitled_2026-10-17 17-40-28_Open Chords Clean.wav" `
+  -Etiqueta "test primera prueba"
+```
+
+It copies (never moves), checks sizes, never overwrites (adds `(2)`), and opens
+Explorer on the result.
+
 ## Moving files between the phone and the PC
 
 `https://<PC-IP>:3000/transferir.html` (also from the **Transferencias** button

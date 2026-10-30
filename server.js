@@ -10,11 +10,14 @@ import selfsigned from "selfsigned";
 import { fileURLToPath } from "url";
 import { finalizarToma, hayFfmpeg } from "./remux.js";
 import { montarTransferencias } from "./transferencias.js";
+import { montarEditor } from "./editor.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const GRABACIONES = path.join(__dirname, "grabaciones");
 const TRANSFERENCIAS = path.join(__dirname, "transferencias");
+// El editor de Remotion es otro repo; por defecto, la carpeta hermana.
+const EDITOR = process.env.GUITAR_EDITOR || path.join(__dirname, "..", "GuitarVideoEditorRemotion");
 
 // ---------------------------------------------------------------- certificado
 // Safari en iOS solo entrega getUserMedia en un "secure context": https, o
@@ -246,6 +249,13 @@ app.get("/api/grabaciones", (req, res) => {
 });
 
 montarTransferencias(app, { carpeta: TRANSFERENCIAS, log });
+montarEditor(app, {
+  raiz: EDITOR,
+  carpetas: { grabaciones: GRABACIONES, transferencias: TRANSFERENCIAS },
+  // SQLite de las sesiones; en .gitignore (el repo es publico).
+  datos: path.join(__dirname, "datos"),
+  log,
+});
 
 const ips = ipsLocales();
 fs.mkdirSync(GRABACIONES, { recursive: true });
@@ -466,6 +476,7 @@ server.listen(PORT, "0.0.0.0", () => {
     console.log(`En el iPhone (Safari):   https://${ip}:${PORT}/phone.html`);
     console.log(`Pasar archivos:          https://${ip}:${PORT}/transferir.html`);
   }
+  console.log(`Editor (en la PC):       https://localhost:${PORT}/editor.html`);
   console.log(`\nLas tomas se guardan en:  ${GRABACIONES}`);
   console.log(`Los archivos que se pasan: ${TRANSFERENCIAS}`);
   if (!hayFfmpeg()) {
