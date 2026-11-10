@@ -37,8 +37,19 @@ espectro: pesa la coincidencia de fase, no el timbre ni el volumen. Banda 80 Hz�
   (medido: +26,9 ms, pico 590). Transcribir notas sobre el stem, nunca sobre la mezcla (la batería mete basura).
 - **Toma dentro de un backing largo** (¿en qué segundo del MP3 cae este lick?): correlacionar el
   audio de la toma contra el MP3 y verificar contra los ataques conocidos.
-- **Audio del teléfono que salta** (WebRTC ajusta ±30 ms): calcular el offset como la **mediana** de
-  las ventanas contra la guitarra sola, no el pico global.
+- **Audio del teléfono que salta** (WebRTC): `sync.py` ya usa la **mediana** de las ventanas como offset
+  y lista los saltos. Caso real: tramos estables con saltos de −8, +17 y −7 ms; el pico global cayó en un
+  tramo corrido (−88,96 ms contra −80,10 de la mediana) y la versión vieja lo marcaba "dudosa".
+- **Si pasan el proyecto (`.flp`) en vez del audio**: el `.flp` no tiene sonido. El export suele estar en
+  la MISMA carpeta del proyecto (listar solo esa carpeta, no barrer el disco); si hay varios, el más
+  reciente o el que nombren, y confirmarlo. Los nombres que dicte el creador pueden venir con letras
+  cambiadas: buscar el parecido en esa carpeta y avisar cuál se usó.
+- **Export de la DAW más largo que la toma** (sigue con el backing): se busca dónde cae el video adentro.
+  `--wav public/audio/mezcla-<version>.wav` lo deja directo para el render. Si el resultado sale raro,
+  ubicar primero la grabación cruda de la DAW (carpeta `Audio/` del proyecto de FL) contra el export y
+  contra el video completo: tres correlaciones que tienen que cerrar entre sí.
+- **Export caliente**: si el export pasa de 0 dBFS (MP3 a −7 LUFS suele hacerlo), pedir otro con un
+  limitador en el master a −1 dB o en WAV; el render igual normaliza a −14 LUFS.
 - **Tomas grabadas a mitad de velocidad**: sincronizar a velocidad real y recién después acelerar
   audio y video juntos (`setpts=0.5*PTS` + `atempo=2`).
 

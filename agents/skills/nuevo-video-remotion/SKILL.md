@@ -66,7 +66,30 @@ reste el inicio de escena a toda marca numérica rompe las banderas.
 - Guitarra: `\displaytranspose 12` (positivo; −12 la baja). Anacrusa con `\ac`.
 - Importar alphaTab desde Node en Windows: URL `file:///E:/...` (`pathToFileURL`), no la ruta pelada.
 
-## 5. Siguiente
+## 5. Receta: video de UNA toma tocando (sin voz)
+
+El caso más común, hecho de punta a punta así (60 s, final verificado):
+
+1. **Cortar** la toma con `agents/tools/cortar_toma.py --desde … --hasta … --buscar 2.5 --buscar-fin 0.6`
+   (archivo nuevo, el original queda de backup).
+2. **Copiar la base** a una carpeta propia del video, `npm install`, `PREFIJO` y puerto del Studio propios.
+3. **Separar** el corte: `public/tomas/toma.mp4` sin audio (`-map 0:v -c:v copy`) y
+   `public/audio/telefono.wav` (`-map 0:a`), que es la referencia para sincronizar y el audio provisorio del Studio.
+4. **Una escena `toma`** a pantalla completa (`OffthreadVideo` muted, `objectFit: cover`, `startFrom` según
+   el `inicioSeg` de la escena) y un solo segmento en `guion.json` de 0 a la duración del corte.
+5. **Audio de la DAW**: `tools/sync.py CORTE.mp4 EXPORT.mp3 --wav public/audio/mezcla-<version>.wav --no-mp4`
+   (skill `sincronizar-audio-video`). En `guion.json`, `audio` apunta a esa mezcla y se sube `audioVersion`.
+6. **Fundido final** (si lo piden, p. ej. "desde 0:50 fade out video y sonido"):
+   - video: una capa `<AbsoluteFill style={{background:"#000", opacity}}>` con `interpolate(frame, [desde*fps, dur-1], [0,1])`,
+     con el segundo en UNA constante (`FUNDIDO_DESDE`);
+   - audio: `ffmpeg -i mezcla.wav -af "afade=t=in:d=0.01,afade=t=out:st=DESDE:d=RESTO:curve=tri"` sobre la mezcla
+     (el render usa la mezcla, no el audio del Studio). Si se regenera la mezcla con sync.py, **volver a aplicar
+     el afade** con el mismo segundo;
+   - verificar midiendo brillo medio y dB por segundo en el render (bajan juntos hasta ~0 / ~−44 dB).
+7. **QA liviano** → aprobado → **final** (skill `render-y-qa`) y verificar la sincronía sobre el mp4 final
+   contra el micrófono del teléfono (mediana ≈ 0 ms).
+
+## 6. Siguiente
 
 voz → `voz-y-timeline` · tomas y audio de la DAW → `sincronizar-audio-video` · música →
 `mezcla-y-backing` · cortes/formatos → `ffmpeg-cortes-y-formatos` · render → `render-y-qa`.
