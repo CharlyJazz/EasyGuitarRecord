@@ -1,0 +1,8 @@
+node_modules/
+out/
+__pycache__/
+public/audio/mezcla-*.wav
+public/audio/voz-*.wav
+public/tomas/*.mp4
+datos-voz/
+public/alphatab/

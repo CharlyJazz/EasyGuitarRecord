@@ -1,0 +1,24 @@
+{
+  "name": "video-remotion-base",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts --port 3200",
+    "render": "node tools/render.mjs",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node tools/copiar-fuentes.mjs"
+  },
+  "dependencies": {
+    "@coderline/alphatab": "1.8.4",
+    "@remotion/cli": "4.0.435",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.435"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

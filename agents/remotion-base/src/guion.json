@@ -1,0 +1,31 @@
+{
+  "corto": {
+    "audio": null,
+    "audioVersion": 0,
+    "segmentos": [
+      {
+        "id": "gancho",
+        "desde": 0,
+        "hasta": 3,
+        "momento": "gancho",
+        "voz": {
+          "es": "Una frase que engancha en los primeros dos segundos.",
+          "en": "A line that hooks in the first two seconds."
+        }
+      },
+      {
+        "id": "explicacion",
+        "desde": 3,
+        "hasta": 12,
+        "momento": "explicación",
+        "marcas": {
+          "detalle": 4.2
+        },
+        "voz": {
+          "es": "Acá va la explicación. El detalle aparece justo cuando digo esta palabra.",
+          "en": "Here goes the explanation. The detail shows up right when I say this word."
+        }
+      }
+    ]
+  }
+}
