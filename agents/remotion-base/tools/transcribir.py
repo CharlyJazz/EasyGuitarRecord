@@ -34,10 +34,20 @@ ap.add_argument("salida", nargs="?")
 ap.add_argument("--desde", type=float)
 ap.add_argument("--hasta", type=float)
 ap.add_argument("--idioma", default="es")
+ap.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
+ap.add_argument("--compute-type", default=None)
 ap.add_argument("--prompt", default="guitarra, acorde, escala, mixolidia, dórica, lidia dominante, Re bemol, Si bemol, tresillo, backing track.")
 a = ap.parse_args()
 
-m = WhisperModel("large-v3-turbo", device="cuda", compute_type="float16")
+if a.device == "auto":
+    try:
+        m = WhisperModel("large-v3-turbo", device="cuda", compute_type=a.compute_type or "float16")
+    except Exception as e:
+        print(f"(CUDA no disponible [{e}], usando CPU int8)", file=sys.stderr)
+        m = WhisperModel("large-v3-turbo", device="cpu", compute_type=a.compute_type or "int8")
+else:
+    ctype = a.compute_type or ("float16" if a.device == "cuda" else "int8")
+    m = WhisperModel("large-v3-turbo", device=a.device, compute_type=ctype)
 
 
 def orden(f):
